@@ -380,9 +380,11 @@ def annotation_payloads(report):
             origins = call.get('callOrigins', [])
             item['call'] = {'site': call['site'], 'reachedInModel': call['reachedInModel'],
                             'arguments': {key: values[:4] for key, values in arguments.items()},
+                            'x0StackSlots': {key: values[:4] for key, values in call.get('x0StackSlots', {}).items()},
                             'callOrigins': origins[:4],
                             'detailsTruncated': (call.get('callOriginsTruncated', False) or len(origins) > 4 or
-                                                 any(len(values) > 4 for values in arguments.values()))}
+                                                 any(len(values) > 4 for values in arguments.values()) or
+                                                 any(len(values) > 4 for values in call.get('x0StackSlots', {}).values()))}
         details.append(item)
     return summary, details
 

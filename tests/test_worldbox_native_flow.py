@@ -91,6 +91,34 @@ class FlowTest(unittest.TestCase):
         self.assertEqual(result['returns'], [])
         self.assertEqual(result['tailTransfers'][0], {'site': '0x3000', 'target': '0x2000', 'x0': ['entry-argument-0']})
 
+    def test_stack_pointee_categories(self):
+        # sub sp,sp,#32; str x1,[sp,#16]; add x0,sp,#16; bl helper; ret
+        data = words(0xd10083ff, 0xf9000be1, 0x910043e0,
+                     branch(0x300c, 0x2020), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {0x2020: 'source-helper'},
+                                     {0x300c: 'source-helper'}, classify)
+        call = result['calls'][0]
+        self.assertEqual(call['arguments']['x0'], ['stack-address'])
+        self.assertEqual(call['x0StackSlots']['0'], ['entry-argument-1'])
+        self.assertEqual(call['x0StackSlots']['8'], ['unknown'])
+
+    def test_stack_pointee_preserves_other_pointer_paths(self):
+        # sub sp,sp,#32; cbz x1,call; str x2,[sp]; mov x0,sp; call; ret
+        data = words(0xd10083ff, 0xb4000061, 0xf90003e2, 0x910003e0,
+                     branch(0x3010, 0x2020), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {0x2020: 'source-helper'},
+                                     {0x3010: 'source-helper'}, classify)
+        self.assertEqual(result['calls'][0]['x0StackSlots']['0'], ['entry-argument-2', 'unknown'])
+
+    def test_call_may_clobber_pointed_stack(self):
+        # sub sp,sp,#32; str x1,[sp,#16]; add x0,sp,#16; bl other;
+        # add x0,sp,#16; bl helper; ret
+        data = words(0xd10083ff, 0xf9000be1, 0x910043e0, branch(0x300c, 0x2020),
+                     0x910043e0, branch(0x3014, 0x2030), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {0x2030: 'source-helper'},
+                                     {0x3014: 'source-helper'}, classify)
+        self.assertEqual(result['calls'][0]['x0StackSlots']['0'], ['unknown'])
+
     def test_tail_branch_arguments(self):
         # b 0x2000; no return to this window.
         word = 0x14000000 | (((0x2000 - 0x3000) // 4) & 0x03ffffff)

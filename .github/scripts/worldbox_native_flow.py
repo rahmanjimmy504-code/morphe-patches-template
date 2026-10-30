@@ -144,6 +144,7 @@ def analyze_window(data, start, plt, targets, classify, capture_returns=False):
     queue = deque([start])
     seen = set()
     observations = {}
+    stack_observations = {}
     returns = {}
     transfers = {}
     call_sites = {}
@@ -163,6 +164,19 @@ def analyze_window(data, start, plt, targets, classify, capture_returns=False):
         def name(op): return ins.reg_name(op.reg)
         def setreg(op, value):
             write_reg(state, name(op), value); handled.add(reg(name(op)))
+        def capture_stack_pointee():
+            # Only directly tracked x0 stack slots, not memory bytes. Other aliases,
+            # layouts, widths and callee writes may make this incomplete or stale.
+            pointer_values = read_reg(state, 'x0')
+            bases = [number for kind, number in pointer_values if kind == 'stack']
+            if not bases:
+                return
+            record = stack_observations.setdefault(pc, {})
+            for delta in (0, 8, 16, 24):
+                value = UNKNOWN if any(kind != 'stack' for kind, _ in pointer_values) else frozenset()
+                for base in bases:
+                    value = joined(value, state['stack'].get(base + delta, UNKNOWN))
+                record[delta] = joined(record.get(delta, frozenset()), value)
 
         if mnemonic in ('adrp', 'adr', 'mov', 'movz') and len(ops) >= 2 and ops[0].type == ARM64_OP_REG:
             setreg(ops[0], operand_value(ins, ops[1], state))
@@ -208,6 +222,13 @@ def analyze_window(data, start, plt, targets, classify, capture_returns=False):
                 values = {f'x{i}': read_reg(state, f'x{i}') for i in range(6)}
                 current = observations.setdefault(pc, {f'x{i}': frozenset() for i in range(6)})
                 for key, value in values.items(): current[key] = joined(current[key], value)
+                capture_stack_pointee()
+            # A callee passed a known stack pointer may modify that region.
+            # This is a bounded heuristic, not complete alias analysis.
+            stack_bases = {number for i in range(8) for kind, number in read_reg(state, f'x{i}') if kind == 'stack'}
+            for offset in state['stack']:
+                if any(base <= offset < base + 128 for base in stack_bases):
+                    state['stack'][offset] = UNKNOWN
             for i in range(19): state['regs'][f'x{i}'] = UNKNOWN
             state['regs']['x0'] = frozenset({('fd', pc)}) if api in ('open', 'open64', 'openat', 'fopen', 'fopen64') else frozenset({('call', pc)})
             handled.update(f'x{i}' for i in range(19))
@@ -219,6 +240,7 @@ def analyze_window(data, start, plt, targets, classify, capture_returns=False):
                 for i in range(6):
                     key = f'x{i}'
                     current[key] = joined(current[key], read_reg(state, key))
+                capture_stack_pointee()
             if capture_returns and branch_target is not None and branch_target not in code:
                 old = transfers.get(pc, (branch_target, frozenset()))
                 transfers[pc] = (branch_target, joined(old[1], read_reg(state, 'x0')))
@@ -263,6 +285,8 @@ def analyze_window(data, start, plt, targets, classify, capture_returns=False):
                                if kind in ('call', 'call-derived', 'memory-call', 'fd'))
         results.append({'site': hex(pc), 'api': expected, 'reachedInModel': observed is not None,
                         'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {},
+                        'x0StackSlots': {str(delta): describe(values, classify)
+                                         for delta, values in sorted(stack_observations.get(pc, {}).items())},
                         'callOrigins': [call_sites[site] for site in sorted(origins) if site in call_sites][:12],
                         'callOriginsTruncated': len(origins) > 12})
     return_details = []
