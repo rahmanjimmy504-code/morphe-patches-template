@@ -218,9 +218,36 @@ try:
                 raise RuntimeError('Game process did not remain running: ' + failure)
             print('::notice title=WorldBox emulator::Game process remained running after 60 seconds (PID ' + pid + ')')
             if os.environ.get('WORLDBOX_METADATA_SCAN') == '1':
-                probe = subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py', pid.split()[0]], timeout=240)
+                game_pid = pid.split()[0]
+                enforcement = adb('shell', 'getenforce', check=False)
+                print('::notice title=Emulator security::SELinux before probe: ' + enforcement)
+                smoke_pid = adb('shell', 'sleep 180 >/dev/null 2>&1 & echo $!', check=False).strip()
+                if smoke_pid.isdigit():
+                    subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py', smoke_pid, '--smoke'], timeout=90)
+                    adb('shell', 'kill', smoke_pid, check=False)
+                else:
+                    print('::warning title=Frida smoke test::Could not start a disposable comparison process.')
+                probe = subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py', game_pid], timeout=240)
+                if probe.returncode and enforcement.lower() == 'enforcing':
+                    # Only on the disposable CI emulator; never changes a user's device.
+                    adb('shell', 'setenforce', '0', check=False)
+                    after = adb('shell', 'getenforce', check=False)
+                    print('::notice title=Emulator security::SELinux after temporary CI-only change: ' + after)
+                    if after.lower() == 'permissive':
+                        probe = subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py', game_pid], timeout=240)
                 if probe.returncode:
-                    raise RuntimeError('Read-only runtime metadata scan failed; see preceding annotation.')
+                    helper = os.environ.get('WORLDBOX_PROC_SCANNER')
+                    if not helper or not Path(helper).is_file():
+                        raise RuntimeError('Frida failed and the /proc fallback binary is missing.')
+                    # Attach only to the freshly installed game in the disposable emulator.
+                    adb('push', helper, '/data/local/tmp/worldbox-proc-scan')
+                    adb('shell', 'chmod', '755', '/data/local/tmp/worldbox-proc-scan')
+                    result = json.loads(adb('shell', '/data/local/tmp/worldbox-proc-scan', game_pid))
+                    if result.get('kind') != 'result':
+                        raise RuntimeError('Unexpected /proc scanner response.')
+                    print('::notice title=WorldBox proc metadata scan::' + json.dumps(result, separators=(',', ':')))
+                    if result['candidates'] == 0:
+                        print('::warning title=WorldBox metadata::No plausible header found; the scan may be incomplete.')
             sys.exit(0)
         if not native or not metadata:
             raise RuntimeError('Missing ARM64 native library or Unity metadata.')

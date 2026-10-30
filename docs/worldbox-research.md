@@ -26,3 +26,9 @@ The branch-only runtime workflow installs the original ARM64 base and split APKs
 Local synthetic checks: `node tests/worldbox-metadata-scanner.test.cjs` and `bash -n docs/worldbox/triage-static.sh`. These checks do not prove the scanner works against WorldBox.
 
 A real Frida 17.25.0 attachment to a synthetic local Linux process containing a mock header also completed successfully. This validates the API path on that host, not Android or WorldBox.
+
+## Frida attachment investigation
+
+The initial emulator runtime scan failed with `unexpectedly timed out trying to sync up with agent`; it did not produce a metadata result. The experimental workflow now tests Frida against a separate disposable emulator process, records the emulator's SELinux mode, and retries WorldBox with permissive SELinux **only inside the disposable CI emulator**. If Frida still fails, it attempts a read-only `/proc/PID/mem` scan via a small x86-64 Android helper. The helper temporarily pauses the target with `ptrace`, resumes it afterwards, and emits aggregate counts only; it does not export memory bytes. Neither a successful attachment nor a heuristic header match proves that Premium can be unlocked.
+
+Synthetic local checks: `python3 tests/test_worldbox_proc_scan.py`, `node tests/worldbox-metadata-scanner.test.cjs`, and `python3 tests/test_worldbox_triage.py`. The `/proc` check attaches only to a synthetic child and verifies that it resumes. These tests do not establish Android or WorldBox compatibility.

@@ -9,6 +9,8 @@ on:
       - docs/worldbox/scan-metadata.js
       - tests/worldbox-metadata-scanner.test.cjs
       - tests/test_worldbox_triage.py
+      - docs/worldbox/proc_scan.c
+      - tests/test_worldbox_proc_scan.py
 permissions:
   contents: read
 jobs:
@@ -21,6 +23,7 @@ jobs:
         run: |
           node tests/worldbox-metadata-scanner.test.cjs
           python3 tests/test_worldbox_triage.py
+          python3 tests/test_worldbox_proc_scan.py
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -44,6 +47,11 @@ jobs:
           python -m pip install 'frida==17.25.0'
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/frida-server.xz" https://github.com/frida/frida/releases/download/17.25.0/frida-server-17.25.0-android-x86_64.xz
           xz -d "$RUNNER_TEMP/frida-server.xz"
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [ -z "$NDK" ] || [ ! -d "$NDK" ]; then
+            NDK="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          fi
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang" -std=c11 -Wall -Wextra -Werror -O2 docs/worldbox/proc_scan.c -o "$RUNNER_TEMP/worldbox-proc-scan"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -57,7 +65,7 @@ jobs:
           arch: x86_64
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: WORLDBOX_RUNTIME_PROBE=1 WORLDBOX_METADATA_SCAN=1 WORLDBOX_FRIDA_SERVER=$RUNNER_TEMP/frida-server python .github/scripts/inspect_worldbox.py
+          script: WORLDBOX_RUNTIME_PROBE=1 WORLDBOX_METADATA_SCAN=1 WORLDBOX_FRIDA_SERVER=$RUNNER_TEMP/frida-server WORLDBOX_PROC_SCANNER=$RUNNER_TEMP/worldbox-proc-scan python .github/scripts/inspect_worldbox.py
   rea-android-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 15

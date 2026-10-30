@@ -1,14 +1,19 @@
 #!/usr/bin/env python3
-"""Attach to the fresh emulator's original game and report aggregates, not memory bytes."""
+"""Frida smoke test or aggregate-only scan of a disposable emulator process."""
+import argparse
 import json
-import sys
+import os
 import threading
 from pathlib import Path
 
 import frida
 
-if len(sys.argv) != 2 or not sys.argv[1].isdigit():
-    raise SystemExit('usage: worldbox_runtime_scan.py PID')
+parser = argparse.ArgumentParser()
+parser.add_argument('pid', type=int)
+parser.add_argument('--smoke', action='store_true')
+args = parser.parse_args()
+if args.pid <= 0:
+    parser.error('PID must be positive')
 
 finished = threading.Event()
 result = None
@@ -23,21 +28,27 @@ def on_message(message, data):
         finished.set()
 
 try:
-    device = frida.get_usb_device(timeout=20)
-    session = device.attach(int(sys.argv[1]))
+    device = frida.get_local_device() if os.environ.get('WORLDBOX_FRIDA_LOCAL') == '1' else frida.get_usb_device(timeout=20)
+    print('::notice title=Frida diagnostic::Attaching to ' + ('emulator smoke process' if args.smoke else 'WorldBox process'), flush=True)
+    session = device.attach(args.pid)
     try:
-        script = session.create_script(Path('docs/worldbox/scan-metadata.js').read_text())
+        source = "send({kind:'smoke',arch:Process.arch});" if args.smoke else Path('docs/worldbox/scan-metadata.js').read_text()
+        script = session.create_script(source)
         script.on('message', on_message)
         script.load()
-        if not finished.wait(180):
-            raise TimeoutError('metadata scan did not finish within 180 seconds')
-        if result.get('kind') != 'result':
-            raise RuntimeError(result.get('message', 'scan failed'))
-        print('::notice title=WorldBox runtime metadata scan::' + json.dumps(result, separators=(',', ':')))
-        if result['candidates'] == 0:
+        if not finished.wait(30 if args.smoke else 180):
+            raise TimeoutError('Frida script did not finish')
+        expected = 'smoke' if args.smoke else 'result'
+        if result.get('kind') != expected:
+            raise RuntimeError(result.get('message', 'unexpected scan result'))
+        title = 'Frida smoke test' if args.smoke else 'WorldBox runtime metadata scan'
+        print('::notice title=' + title + '::' + json.dumps(result, separators=(',', ':')))
+        if not args.smoke and result['candidates'] == 0:
             print('::warning title=WorldBox metadata::No candidate found; this is not proof that metadata is absent.')
     finally:
         session.detach()
 except Exception as exc:
-    print('::error title=WorldBox runtime metadata scan::' + str(exc).replace('%', '%25').replace('\n', '%0A'))
+    # This is a warning: the caller may still succeed via the /proc fallback.
+    title = 'Frida smoke test' if args.smoke else 'WorldBox runtime metadata scan'
+    print('::warning title=' + title + '::' + str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
     raise SystemExit(1)
