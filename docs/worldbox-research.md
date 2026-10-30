@@ -34,3 +34,5 @@ The initial emulator runtime scan failed with `unexpectedly timed out trying to 
 Synthetic local checks: `python3 tests/test_worldbox_proc_scan.py`, `node tests/worldbox-metadata-scanner.test.cjs`, and `python3 tests/test_worldbox_triage.py`. The `/proc` check attaches only to a synthetic child and verifies that it resumes. These tests do not establish Android or WorldBox compatibility.
 
 The subsequent CI comparison successfully attached Frida to a simple x86-64 emulator process. WorldBox attachment timed out waiting for a process stop; by the fallback attempt, that process was gone, so the `/proc` scan did not run. The workflow now restarts WorldBox before retrying or using the fallback; this does not establish why the game disappeared.
+
+In the next emulator run, the simple Frida smoke test passed, but the WorldBox Frida attempt timed out and its retry could not connect to the server. The restarted game was scanned by the Android `/proc` helper and it reported zero plausible headers. A zero is inconclusive; the detailed aggregate was hidden by GitHub Actions notice limits in that run. The workflow now surfaces it as a warning.

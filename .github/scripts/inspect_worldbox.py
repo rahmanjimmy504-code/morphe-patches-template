@@ -241,7 +241,7 @@ try:
                     # Only on the disposable CI emulator; never changes a user's device.
                     adb('shell', 'setenforce', '0', check=False)
                     after = adb('shell', 'getenforce', check=False)
-                    print('::notice title=Emulator security::SELinux after temporary CI-only change: ' + after)
+                    print('::warning title=Emulator security::SELinux after temporary CI-only change: ' + after)
                     if after.lower() == 'permissive':
                         game_pid = restart_game('permissive Frida retry')
                         probe = subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py', game_pid], timeout=240)
@@ -257,7 +257,7 @@ try:
                     result = json.loads(adb('shell', '/data/local/tmp/worldbox-proc-scan', game_pid))
                     if result.get('kind') != 'result':
                         raise RuntimeError('Unexpected /proc scanner response.')
-                    print('::notice title=WorldBox proc metadata scan::' + json.dumps(result, separators=(',', ':')))
+                    print('::warning title=WorldBox proc metadata scan::' + json.dumps(result, separators=(',', ':')))
                     if result['candidates'] == 0:
                         print('::warning title=WorldBox metadata::No plausible header found; the scan may be incomplete.')
             sys.exit(0)
