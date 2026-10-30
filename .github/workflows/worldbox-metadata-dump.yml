@@ -1,0 +1,195 @@
+# WorldBox IL2CPP metadata triage / memory-dump helper.
+#
+# MANUAL ONLY (workflow_dispatch). It never runs on push/PR.
+#
+# It expects the APK somewhere you control, referenced by the repository secret
+# WORLDBOX_APK_URL (a short-lived signed URL from your own storage works well).
+# Nothing about the package is committed to the repo, and by default only
+# aggregate reports are uploaded as artifacts - never the APK, the native
+# libraries or the dumped metadata.
+#
+# Legality/etiquette: use it on your own licensed copy of the game, keep the
+# payload private, and do not redistribute game files.
+#
+# Before running: Settings > Secrets and variables > Actions > new secret
+#   WORLDBOX_APK_URL = https://.../worldbox-0.51.4.apk
+#
+# If the artifact would be public (public repo), leave `upload_payload` false:
+# GitHub artifacts on public repositories can be downloaded by any signed-in
+# user, which would republish the game's data.
+
+name: WorldBox IL2CPP triage
+
+on:
+  workflow_dispatch:
+    inputs:
+      wait_seconds:
+        description: 'Seconds to let the game run before attaching'
+        required: false
+        default: '60'
+      frida_version:
+        description: 'frida-server version (the Python `frida` package is pinned to it)'
+        required: false
+        default: '17.25.0'
+      upload_payload:
+        description: 'Also upload the dumped metadata (ONLY on a private repo)'
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+env:
+  PACKAGE: com.mkarpenko.worldbox
+  APK_URL: ${{ secrets.WORLDBOX_APK_URL }}
+
+jobs:
+  static:
+    name: Static triage (no emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch package
+        run: |
+          set -euo pipefail
+          if [ -z "${APK_URL:-}" ]; then
+            echo "::error::Set the WORLDBOX_APK_URL repository secret (URL of your own APK copy)."
+            exit 1
+          fi
+          curl -fsSL --retry 3 -o worldbox.apk "$APK_URL"
+          ls -l worldbox.apk
+
+      - name: Install binutils
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq binutils unzip
+
+      - name: Run static triage
+        run: |
+          set -euo pipefail
+          mkdir -p report/payload-not-uploaded
+          bash docs/worldbox/triage-static.sh worldbox.apk report/static-triage.md
+          cat report/static-triage.md
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: worldbox-static-triage
+          path: report/
+          if-no-files-found: warn
+
+  runtime:
+    name: Runtime metadata scan (x86_64 emulator + ARM translation)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch package
+        run: |
+          set -euo pipefail
+          if [ -z "${APK_URL:-}" ]; then
+            echo "::error::Set the WORLDBOX_APK_URL repository secret (URL of your own APK copy)."
+            exit 1
+          fi
+          curl -fsSL --retry 3 -o worldbox.apk "$APK_URL"
+          ls -l worldbox.apk
+
+      - name: Host deps
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq xz-utils python3
+          python3 -m pip install --quiet "frida==${{ inputs.frida_version }}" frida-tools
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' \
+            | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run emulator and scan
+        uses: ReactiveCircus/android-emulator-runner@v2
+        env:
+          FRIDA: ${{ inputs.frida_version }}
+          WAIT: ${{ inputs.wait_seconds }}
+        with:
+          api-level: 30
+          target: google_apis      # debuggable image: `adb root` works
+          arch: x86_64             # ARM64 images are rejected on x86_64 hosts (API >= 28)
+          profile: pixel_5
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -camera-back none
+          script: |
+            set -euxo pipefail
+            mkdir -p report
+
+            # --- 1. confirm we really are on an ARM-translating image ---------
+            adb root || true
+            adb wait-for-device
+            adb shell setenforce 0 || true
+            adb shell getprop ro.product.cpu.abilist | tee report/abilist.txt
+            adb shell getprop ro.dalvik.vm.native.bridge | tee report/native-bridge.txt || true
+
+            # --- 2. frida-server for the *emulator* ABI (x86_64) --------------
+            curl -fsSL --retry 3 -o fs.xz \
+              "https://github.com/frida/frida/releases/download/${FRIDA}/frida-server-${FRIDA}-android-x86_64.xz"
+            xz -d fs.xz
+            adb push fs /data/local/tmp/frida-server
+            adb shell chmod 755 /data/local/tmp/frida-server
+            adb shell "nohup /data/local/tmp/frida-server >/data/local/tmp/frida-server.log 2>&1 &" || true
+            sleep 8
+            frida-ps -U | head -20 | tee report/frida-ps.txt
+
+            # --- 3. install and start the game -------------------------------
+            adb install -r -g worldbox.apk | tee report/install.txt
+            adb shell monkey -p "$PACKAGE" -c android.intent.category.LAUNCHER 1 || true
+            sleep "$WAIT"
+
+            PID="$(adb shell pidof "$PACKAGE" | tr -d '\r')"
+            echo "pid=$PID" | tee report/pid.txt
+            test -n "$PID" || { echo "game process is not running"; exit 1; }
+            adb shell "cat /proc/$PID/maps" > report/maps.txt || true
+            grep -c 'libil2cpp' report/maps.txt | tee report/libil2cpp-mappings.txt || true
+
+            # --- 4. data-only scan for the decrypted metadata header ---------
+            # No native hooks are used, so the x86_64 agent can read memory of a
+            # process whose IL2CPP code is ARM and running under translation.
+            timeout 600 frida -U -F -l docs/worldbox/dump-metadata.js -q || true
+
+            adb shell "ls -l /data/local/tmp/wb-meta" | tee report/dump-listing.txt || true
+            adb pull /data/local/tmp/wb-meta ./payload || true
+
+            # --- 5. validate locally, keep only aggregates by default --------
+            python3 - <<'PY' | tee report/verify.txt
+            import hashlib, pathlib, struct
+            for p in sorted(pathlib.Path('payload').glob('*.dat')):
+                b = p.read_bytes()
+                magic = struct.unpack_from('<I', b, 0)[0] if len(b) >= 4 else 0
+                ver = struct.unpack_from('<i', b, 4)[0] if len(b) >= 8 else -1
+                print(f"{p.name}: size={len(b)} magic=0x{magic:08X} version={ver} "
+                      f"sha256={hashlib.sha256(b).hexdigest()}")
+                print("  -> looks like plaintext IL2CPP metadata" if magic == 0xFAB11BAF
+                      else "  -> header still not valid; runtime may decrypt lazily")
+            PY
+            rm -f worldbox.apk fs
+
+      - name: Remove payload unless explicitly allowed
+        if: ${{ !inputs.upload_payload }}
+        run: rm -rf payload
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: worldbox-runtime-report
+          path: report/
+          if-no-files-found: warn
+
+      - uses: actions/upload-artifact@v7
+        if: ${{ inputs.upload_payload }}
+        with:
+          name: worldbox-runtime-payload-PRIVATE-ONLY
+          path: payload/
+          if-no-files-found: warn
