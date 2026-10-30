@@ -24,3 +24,5 @@ The read-only scanner in `docs/worldbox/scan-metadata.js` was adapted from the r
 The branch-only runtime workflow installs the original ARM64 base and split APKs on a disposable Android emulator and attaches to the exact game PID. It does not publish the APK or any metadata. It can be enabled with the `WORLDBOX_RUNTIME_PROBE` repository variable or by including `[worldbox-runtime]` in a commit message that changes one of the workflow's watched paths. This is a research workflow, not a premium patch.
 
 Local synthetic checks: `node tests/worldbox-metadata-scanner.test.cjs` and `bash -n docs/worldbox/triage-static.sh`. These checks do not prove the scanner works against WorldBox.
+
+A real Frida 17.25.0 attachment to a synthetic local Linux process containing a mock header also completed successfully. This validates the API path on that host, not Android or WorldBox.
