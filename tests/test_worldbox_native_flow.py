@@ -46,7 +46,25 @@ class FlowTest(unittest.TestCase):
                      branch(0x3008, 0x2010), 0xd65f03c0)
         result = flow.analyze_window(data, 0x3000, {0x2000: 'open', 0x2010: 'read'},
                                      {0x3008: 'read'}, classify)
-        self.assertEqual(result['calls'][0]['arguments']['x0'], ['unknown'])
+        self.assertEqual(result['calls'][0]['arguments']['x0'], ['x0-after-call@0x3004'])
+        self.assertEqual(result['calls'][0]['callOrigins'][0]['target'], '0x2020')
+
+    def test_callee_and_memory_provenance(self):
+        # bl helper; ldr x0,[x0]; bl read; ret
+        data = words(branch(0x3000, 0x2020), 0xf9400000,
+                     branch(0x3008, 0x2010), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {0x2010: 'read'},
+                                     {0x3008: 'read'}, classify)
+        call = result['calls'][0]
+        self.assertEqual(call['arguments']['x0'], ['loaded-through-x0-after-call@0x3000'])
+        self.assertEqual(call['callOrigins'], [{'site': '0x3000', 'kind': 'direct', 'target': '0x2020', 'recognizedApi': None}])
+
+    def test_load_through_entry_argument(self):
+        # ldr x0,[x0]; bl read; ret
+        data = words(0xf9400000, branch(0x3004, 0x2010), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {0x2010: 'read'},
+                                     {0x3004: 'read'}, classify)
+        self.assertEqual(result['calls'][0]['arguments']['x0'], ['loaded-through-entry-argument-0'])
 
     def test_stack_spill_and_reload(self):
         # stp fp,lr,[sp,#-32]!; bl open; str w0,[sp,#16];

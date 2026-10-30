@@ -80,6 +80,12 @@ def shifted(value, delta):
     for kind, num in value:
         if kind in ('const', 'stack'):
             out.add((kind, num + delta))
+        elif kind in ('arg', 'arg-derived'):
+            out.add(('arg' if delta == 0 and kind == 'arg' else 'arg-derived', num))
+        elif kind in ('call', 'call-derived'):
+            out.add(('call' if delta == 0 and kind == 'call' else 'call-derived', num))
+        elif delta == 0:
+            out.add((kind, num))
         else:
             out.add(('unknown', 0))
     return frozenset(out) if len(out) <= MAX_VALUES else UNKNOWN
@@ -98,11 +104,29 @@ def stack_keys(base, disp):
     return keys if len(keys) == len(base) else set()
 
 
+def loaded_from(base):
+    """Only record a broad data origin; this does not model memory contents."""
+    out = set()
+    for kind, value in base:
+        if kind in ('arg', 'arg-derived', 'memory-arg'):
+            out.add(('memory-arg', value))
+        elif kind in ('call', 'call-derived', 'memory-call'):
+            out.add(('memory-call', value))
+        else:
+            out.add(('unknown', 0))
+    return frozenset(out) if len(out) <= MAX_VALUES else UNKNOWN
+
+
 def describe(values, classify):
     result = set()
     for kind, value in values:
         if kind == 'const': result.add(classify(value))
         elif kind == 'arg': result.add('entry-argument-' + str(value))
+        elif kind == 'arg-derived': result.add('derived-from-entry-argument-' + str(value))
+        elif kind == 'memory-arg': result.add('loaded-through-entry-argument-' + str(value))
+        elif kind == 'call': result.add('x0-after-call@' + hex(value))
+        elif kind == 'call-derived': result.add('derived-from-x0-after-call@' + hex(value))
+        elif kind == 'memory-call': result.add('loaded-through-x0-after-call@' + hex(value))
         elif kind == 'fd': result.add('return-from-open@' + hex(value))
         elif kind == 'stack': result.add('stack-address')
         else: result.add('unknown')
@@ -120,6 +144,7 @@ def analyze_window(data, start, plt, targets, classify):
     queue = deque([start])
     seen = set()
     observations = {}
+    call_sites = {}
     branch_count = 0
     steps = 0
     while queue and steps < MAX_STEPS:
@@ -158,6 +183,8 @@ def analyze_window(data, start, plt, targets, classify):
                         value = frozenset()
                         for offset in offsets:
                             value = joined(value, state['stack'].get(offset, UNKNOWN))
+                        if not offsets:
+                            value = loaded_from(base)
                         setreg(op, value or UNKNOWN)
                     else:
                         value = operand_value(ins, op, state)
@@ -172,12 +199,15 @@ def analyze_window(data, start, plt, targets, classify):
         if mnemonic in ('bl', 'blr'):
             target = ops[0].imm if mnemonic == 'bl' and ops and ops[0].type == ARM64_OP_IMM else None
             api = plt.get(target)
+            call_sites[pc] = {'site': hex(pc), 'kind': 'direct' if target is not None else 'indirect',
+                              'target': hex(target) if target is not None else None,
+                              'recognizedApi': api}
             if pc in targets and api == targets[pc]:
                 values = {f'x{i}': read_reg(state, f'x{i}') for i in range(6)}
                 current = observations.setdefault(pc, {f'x{i}': frozenset() for i in range(6)})
                 for key, value in values.items(): current[key] = joined(current[key], value)
             for i in range(19): state['regs'][f'x{i}'] = UNKNOWN
-            state['regs']['x0'] = frozenset({('fd', pc)}) if api in ('open', 'open64', 'openat', 'fopen', 'fopen64') else UNKNOWN
+            state['regs']['x0'] = frozenset({('fd', pc)}) if api in ('open', 'open64', 'openat', 'fopen', 'fopen64') else frozenset({('call', pc)})
             handled.update(f'x{i}' for i in range(19))
         elif mnemonic == 'b':
             branch_count += 1
@@ -216,8 +246,15 @@ def analyze_window(data, start, plt, targets, classify):
                     'wrapper-open': (0, 1, 2, 3, 4, 5), 'wrapper-mmap': (0, 1, 2, 3, 4, 5),
                     'wrapper-mapparent': (0, 1, 2, 3, 4, 5), 'tail-mapparent': (0, 1, 2, 3, 4, 5),
                     'tail-parent-caller': (0, 1, 2, 3, 4, 5)}.get(expected, ())
+        origins = set()
+        if observed:
+            for index in arg_regs:
+                origins.update(value for kind, value in observed[f'x{index}']
+                               if kind in ('call', 'call-derived', 'memory-call', 'fd'))
         results.append({'site': hex(pc), 'api': expected, 'reachedInModel': observed is not None,
-                        'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {}})
+                        'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {},
+                        'callOrigins': [call_sites[site] for site in sorted(origins) if site in call_sites][:12],
+                        'callOriginsTruncated': len(origins) > 12})
     return {'decodedInstructions': len(code), 'visitedInstructions': len(seen), 'branchVisits': branch_count,
             'workLimitReached': bool(queue), 'calls': results}
 
@@ -372,7 +409,7 @@ def inspect(path, sites=SITES):
                 'matchedWatchedPltStubs': matched, 'unresolvedSites': locations, 'functions': functions,
                 'directWrapperCallers': {'counts': caller_refs, 'examples': caller_results,
                                          'executableScanTruncated': caller_scan_truncated},
-                'limitations': 'Heuristic CFG and register tracking with unwind-derived ranges; unsupported instructions, indirect branches, aliases, external callees, dynamic data and incomplete unwind information can cause false positives or missed paths. Static possibilities are not runtime proof.'}
+                'limitations': 'Heuristic CFG and register tracking with unwind-derived ranges; x0-after-call and loaded-through describe possible origins, not verified return values or memory contents. Unsupported instructions, indirect branches, aliases, external callees, dynamic data and incomplete unwind information can cause false positives or missed paths. Static possibilities are not runtime proof.'}
 
 
 def main():
