@@ -76,6 +76,21 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            expected = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
+            if observed != expected:
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            output = subprocess.run([sys.executable, '.github/scripts/worldbox_native_scan.py', str(native)],
+                                    capture_output=True, text=True, timeout=360, check=True)
+            data = json.loads(output.stdout)
+            if data.get('kind') != 'arm64-static-triage':
+                raise RuntimeError('Unexpected ARM64 static analysis result.')
+            print('::warning title=WorldBox ARM64 static triage::' + json.dumps(data, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_REA_PROBE') == '1':
             rea = os.environ['WORLDBOX_REA_ENTRY']
             base = Path(td) / 'base.apk'
