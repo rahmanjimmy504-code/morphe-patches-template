@@ -8,8 +8,10 @@ on:
       - .github/scripts/worldbox_runtime_scan.py
       - .github/scripts/worldbox_native_scan.py
       - .github/scripts/worldbox_native_flow.py
+      - .github/scripts/worldbox_native_xrefs.py
       - tests/test_worldbox_native.py
       - tests/test_worldbox_native_flow.py
+      - tests/test_worldbox_native_xrefs.py
       - docs/worldbox/scan-metadata.js
       - tests/worldbox-metadata-scanner.test.cjs
       - tests/test_worldbox_triage.py
@@ -51,6 +53,7 @@ jobs:
         run: |
           python tests/test_worldbox_native.py
           python tests/test_worldbox_native_flow.py
+          python tests/test_worldbox_native_xrefs.py
       - name: Inspect original ARM64 library without executing it
         env:
           WORLDBOX_NATIVE_PROBE: '1'

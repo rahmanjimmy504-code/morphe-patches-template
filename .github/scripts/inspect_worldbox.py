@@ -96,6 +96,14 @@ try:
             if flow.get('kind') != 'arm64-static-flow':
                 raise RuntimeError('Unexpected ARM64 file-flow analysis result.')
             print('::warning title=WorldBox ARM64 file flow::' + json.dumps(flow, separators=(',', ':')))
+            xref_output = subprocess.run([sys.executable, '.github/scripts/worldbox_native_xrefs.py', str(native)],
+                                         capture_output=True, text=True, timeout=360)
+            if xref_output.returncode:
+                raise RuntimeError('ARM64 cross-reference tool failed: ' + xref_output.stderr[-800:])
+            xref = json.loads(xref_output.stdout)
+            if xref.get('kind') != 'arm64-static-xrefs':
+                raise RuntimeError('Unexpected ARM64 cross-reference result.')
+            print('::warning title=WorldBox ARM64 indirect references::' + json.dumps(xref, separators=(',', ':')))
             sys.exit(0)
         if os.environ.get('WORLDBOX_REA_PROBE') == '1':
             rea = os.environ['WORLDBOX_REA_ENTRY']
