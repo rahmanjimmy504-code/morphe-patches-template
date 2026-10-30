@@ -12,10 +12,12 @@ import struct
 
 from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
 from elftools.elf.elffile import ELFFile
+from elftools.dwarf.callframe import FDE
 from elftools.elf.relocation import RelocationSection
 from elftools.elf.sections import SymbolTableSection
 
 import worldbox_native_scan as triage
+import worldbox_native_flow as flow
 
 TARGET = 0x18d3fd0  # Unwind-derived shared file-mapping parent, 0.51.4 ARM64.
 MAX_EXEC = 96 * 1024 * 1024
@@ -167,10 +169,80 @@ def inspect(path, target=TARGET):
                         if len(pointer_samples) < SAMPLES:
                             pointer_samples.append({'section': sec.name, 'location': hex(sec['sh_addr'] + first + index * 8)})
                 data_scanned += len(data)
+        tail_traces = []
+        tail_callers = {}
+        unwind_status = 'not-needed'
+        if tail_samples:
+            unwind_status = 'missing'
+            eh = elf.get_section_by_name('.eh_frame')
+            frames = []
+            if eh and eh['sh_size'] > flow.MAX_EH_SIZE:
+                unwind_status = 'too-large'
+            elif eh:
+                try:
+                    dwarf = elf.get_dwarf_info()
+                    if dwarf.has_EH_CFI():
+                        frames = sorted((entry['initial_location'], entry['initial_location'] + entry['address_range'])
+                                        for entry in dwarf.EH_CFI_entries() if isinstance(entry, FDE) and entry['address_range'])
+                        unwind_status = 'parsed'
+                    else:
+                        unwind_status = 'no-cfi'
+                except Exception as exc:
+                    unwind_status = 'parse-error-' + type(exc).__name__
+            starts = [lo for lo, _ in frames]
+            executable = [s for s in elf.iter_sections() if s['sh_flags'] & 4 and s['sh_type'] != 'SHT_NOBITS']
+            constants = [s for s in elf.iter_sections() if s['sh_flags'] & 2 and not s['sh_flags'] & (1 | 4) and s['sh_type'] != 'SHT_NOBITS']
+            def classify(value):
+                sec = next((s for s in constants if s['sh_addr'] <= value < s['sh_addr'] + s['sh_size']), None)
+                if not sec:
+                    return 'small-constant' if 0 <= value <= 4096 else 'other-constant'
+                offset = value - sec['sh_addr']
+                f.seek(sec['sh_offset'] + offset)
+                raw = f.read(min(128, sec['sh_size'] - offset))
+                category = triage.string_category(raw)
+                if category: return category
+                text = raw.split(b'\0', 1)[0]
+                return 'other-static-string' if text and all(32 <= c <= 126 for c in text) else 'static-data-address'
+            targets = set()
+            for site_hex in tail_samples:
+                site = int(site_hex, 16)
+                frame = flow.frame_for_site(frames, starts, site)
+                if not frame:
+                    tail_traces.append({'site': site_hex, 'status': 'no-unwind-range'})
+                    continue
+                lo, hi = frame
+                sec = next((part for part in executable if part['sh_addr'] <= lo and hi <= part['sh_addr'] + part['sh_size']), None)
+                if not sec or hi - lo > flow.MAX_FUNCTION or lo % 4:
+                    tail_traces.append({'site': site_hex, 'status': 'unusable-or-too-large-range'})
+                    continue
+                targets.add(lo)
+                f.seek(sec['sh_offset'] + lo - sec['sh_addr'])
+                result = flow.analyze_window(f.read(hi - lo), lo, {target: 'tail-mapparent'}, {site: 'tail-mapparent'}, classify)
+                tail_traces.append({'site': site_hex, 'function': hex(lo), 'size': hi - lo,
+                                    'workLimitReached': result['workLimitReached'], 'call': result['calls'][0]})
+            tail_callers = {hex(addr): {'directCalls': 0, 'directTailBranches': 0, 'sampleSites': []} for addr in targets}
+            remaining = MAX_EXEC
+            for sec in executable if targets else ():
+                if remaining < 4: break
+                data = sec.data()[:remaining & ~3]
+                remaining -= len(data)
+                for pc, word in triage.instructions(data, sec['sh_addr']):
+                    destination = triage.direct_branch(word, pc)
+                    call_type = 'directCalls'
+                    if destination not in targets:
+                        destination = direct_tail(word, pc)
+                        call_type = 'directTailBranches'
+                    if destination in targets:
+                        entry = tail_callers[hex(destination)]
+                        entry[call_type] += 1
+                        if len(entry['sampleSites']) < SAMPLES:
+                            entry['sampleSites'].append({'site': hex(pc), 'kind': call_type})
         return {
             'kind': 'arm64-static-xrefs', 'target': hex(target),
             'symbolMatches': target_symbol_count,
-            'directTailBranches': {'count': tail_count, 'sampleSites': tail_samples},
+            'directTailBranches': {'count': tail_count, 'sampleSites': tail_samples,
+                                   'unwindStatus': unwind_status, 'traces': tail_traces,
+                                   'enclosingFunctionCallers': tail_callers},
             'pcRelativeAddressPairs': {'count': pair_count, 'samples': pair_samples},
             'matchingRelocations': {'count': reloc_count, 'samples': reloc_samples,
                                     'unsupportedRelocationSections': sorted(set(unsupported_relocations))},

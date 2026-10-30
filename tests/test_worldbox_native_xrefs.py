@@ -1,5 +1,7 @@
 """Synthetic-only tests of ARM64 tail branches and indirect-reference clues."""
 from pathlib import Path
+import io
+from elftools.elf.elffile import ELFFile
 import struct
 import sys
 import tempfile
@@ -57,6 +59,23 @@ class NativeXrefsTest(unittest.TestCase):
         self.assertEqual(report['matchingRelocations']['samples'][0]['type'], 1027)
         self.assertFalse(report['execTruncated'])
         self.assertFalse(report['dataTruncated'])
+
+    def test_tail_branch_uses_unwind_function_and_tracks_arguments(self):
+        data = fixture(eh_frame=True)
+        elf = ELFFile(io.BytesIO(data))
+        text = elf.get_section_by_name('.text')
+        struct.pack_into('<I', data, text['sh_offset'], tail(0x3000, 0x2000))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = refs.inspect(path, target=0x2000)
+        found = report['directTailBranches']
+        self.assertEqual(found['count'], 1)
+        self.assertEqual(found['unwindStatus'], 'parsed')
+        trace = found['traces'][0]
+        self.assertEqual(trace['function'], '0x3000')
+        self.assertTrue(trace['call']['reachedInModel'])
+        self.assertEqual(trace['call']['arguments']['x0'], ['entry-argument-0'])
 
     def test_rejects_other_architecture(self):
         data = fixture()

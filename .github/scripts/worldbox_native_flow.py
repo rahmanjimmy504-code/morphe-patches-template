@@ -181,7 +181,13 @@ def analyze_window(data, start, plt, targets, classify):
             handled.update(f'x{i}' for i in range(19))
         elif mnemonic == 'b':
             branch_count += 1
-            next_pcs = [ops[0].imm] if ops and ops[0].type == ARM64_OP_IMM else []
+            branch_target = ops[0].imm if ops and ops[0].type == ARM64_OP_IMM else None
+            if pc in targets and plt.get(branch_target) == targets[pc]:
+                current = observations.setdefault(pc, {f'x{i}': frozenset() for i in range(6)})
+                for i in range(6):
+                    key = f'x{i}'
+                    current[key] = joined(current[key], read_reg(state, key))
+            next_pcs = [branch_target] if branch_target is not None else []
         elif mnemonic.startswith('b.') or mnemonic in ('cbz', 'cbnz', 'tbz', 'tbnz'):
             branch_count += 1
             if ops and ops[-1].type == ARM64_OP_IMM: next_pcs.append(ops[-1].imm)
@@ -208,7 +214,7 @@ def analyze_window(data, start, plt, targets, classify):
         arg_regs = {'open': (0, 1), 'read': (0, 1, 2), 'fstat': (0, 1),
                     'mmap': (0, 1, 2, 3, 4, 5), 'munmap': (0, 1),
                     'wrapper-open': (0, 1, 2, 3, 4, 5), 'wrapper-mmap': (0, 1, 2, 3, 4, 5),
-                    'wrapper-mapparent': (0, 1, 2, 3, 4, 5)}.get(expected, ())
+                    'wrapper-mapparent': (0, 1, 2, 3, 4, 5), 'tail-mapparent': (0, 1, 2, 3, 4, 5)}.get(expected, ())
         results.append({'site': hex(pc), 'api': expected, 'reachedInModel': observed is not None,
                         'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {}})
     return {'decodedInstructions': len(code), 'visitedInstructions': len(seen), 'branchVisits': branch_count,

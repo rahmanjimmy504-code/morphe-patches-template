@@ -57,6 +57,14 @@ class FlowTest(unittest.TestCase):
                                      {0x3004: 'open', 0x3010: 'read'}, classify)
         self.assertEqual(result['calls'][1]['arguments']['x0'], ['return-from-open@0x3004'])
 
+    def test_tail_branch_arguments(self):
+        # b 0x2000; no return to this window.
+        word = 0x14000000 | (((0x2000 - 0x3000) // 4) & 0x03ffffff)
+        result = flow.analyze_window(words(word), 0x3000, {0x2000: 'tail-mapparent'},
+                                     {0x3000: 'tail-mapparent'}, classify)
+        self.assertTrue(result['calls'][0]['reachedInModel'])
+        self.assertEqual(result['calls'][0]['arguments']['x0'], ['entry-argument-0'])
+
     def test_unwind_overlap_selection(self):
         frames = [(100, 500), (150, 180), (160, 220), (800, 900)]
         starts = [lo for lo, _ in frames]
