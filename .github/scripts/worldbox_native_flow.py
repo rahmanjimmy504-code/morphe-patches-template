@@ -358,8 +358,8 @@ def inspect(path, sites=SITES):
                 result = analyze_window(f.read(hi - lo), lo, caller_plt, {site: wrapper_targets[target]}, classify)
                 caller_results.append({'site': hex(site), 'target': wrapper_targets[target], 'function': hex(lo),
                                        'workLimitReached': result['workLimitReached'], 'call': result['calls'][0]})
-        caller_refs = {wrapper_targets[target]: {'wrapper': hex(target), 'directCallCount': info['count'],
-                                                 'sampledSites': len(info['sampleSites'])}
+        caller_refs = {hex(target): {'kind': wrapper_targets[target], 'directCallCount': info['count'],
+                                    'sampledSites': len(info['sampleSites'])}
                        for target, info in refs.items()}
         return {'kind': 'arm64-static-flow', 'unwindStatus': status, 'unwindRanges': len(frames),
                 'matchedWatchedPltStubs': matched, 'unresolvedSites': locations, 'functions': functions,
