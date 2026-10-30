@@ -22,13 +22,17 @@ f.write(b''.join(struct.pack('<I', i * 16) for i in range(2, 16)))
 f.write(b'\0' * 4096)
 f.flush()
 read_only = mmap.mmap(f.fileno(), 0, access=mmap.ACCESS_READ)
+assert read_only[0] == 0xaf  # fault the file-backed page into the process
+sparse = mmap.mmap(-1, 16 * 1024 * 1024)
+sparse[0] = 1
+sparse[-1] = 1
 print('ready', flush=True)
 time.sleep(60)
 '''
 
 @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('cc'), 'Linux and C compiler required')
 class ProcScannerTest(unittest.TestCase):
-    def scan_fixture(self, budget=None):
+    def scan_fixture(self, budget=None, resident=False):
         with tempfile.TemporaryDirectory() as directory:
             exe = pathlib.Path(directory) / 'proc-scan'
             cmd = ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2']
@@ -38,7 +42,7 @@ class ProcScannerTest(unittest.TestCase):
             with subprocess.Popen([sys.executable, '-c', FIXTURE], stdout=subprocess.PIPE, text=True) as child:
                 try:
                     self.assertEqual(child.stdout.readline().strip(), 'ready')
-                    scan = subprocess.run([str(exe), str(child.pid)], text=True, capture_output=True, timeout=20)
+                    scan = subprocess.run([str(exe), str(child.pid)] + (['--resident'] if resident else []), text=True, capture_output=True, timeout=20)
                     if scan.returncode and 'Operation not permitted' in scan.stderr:
                         self.skipTest('ptrace not permitted in this environment')
                     self.assertEqual(scan.returncode, 0, scan.stderr)
@@ -87,6 +91,54 @@ int main(void) {
             self.assertLessEqual(stats['attemptedBytes'], stats['eligibleBytes'])
         self.assertEqual(result['candidates'], result['priority']['candidates'] + result['later']['candidates'])
         self.assertNotIn('bytes', result)
+
+    def test_pagemap_present_swapped_and_unknown_accounting(self):
+        source = r"""
+#define main scanner_main
+#include "%s"
+#undef main
+#include <assert.h>
+int main(void) {
+    FILE *f = tmpfile(); assert(f);
+    uint64_t pages[] = {UINT64_C(1) << 63, 0, UINT64_C(1) << 62, UINT64_C(1) << 63};
+    assert(fwrite(pages, sizeof(pages), 1, f) == 1); fflush(f);
+    Range map = {0, 5 * 4096, 1}, *runs = NULL;
+    size_t count = 0; Stats group[2] = {{0}, {0}};
+    assert(resident_ranges(fileno(f), &map, 1, 4096, &runs, &count, group) == 0);
+    assert(count == 2 && runs[0].start == 0 && runs[0].end == 4096);
+    assert(runs[1].start == 3 * 4096 && runs[1].end == 4 * 4096);
+    assert(group[0].eligible == 2 * 4096 && group[0].nonresident == 2 * 4096);
+    assert(group[0].swapped == 4096 && group[0].unknown == 4096);
+    free(runs); fclose(f); return 0;
+}
+""" % SOURCE
+        with tempfile.TemporaryDirectory() as directory:
+            harness = pathlib.Path(directory) / 'pagemap.c'
+            harness.write_text(source)
+            exe = pathlib.Path(directory) / 'pagemap'
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(harness), '-o', str(exe)], check=True)
+            subprocess.run([str(exe)], check=True)
+
+    def test_resident_scan_accounts_for_sparse_pages(self):
+        result = self.scan_fixture(resident=True)
+        self.assertEqual(result['mode'], 'resident')
+        self.assertTrue({29, 30, 31}.issubset(result['versions']))
+        self.assertTrue(result['truncated'], 'nonresident pages are not scanned')
+        self.assertFalse(result['residentTruncated'])
+        self.assertGreater(sum(result[g]['nonresidentBytes'] for g in ('priority', 'later')), 1024 * 1024)
+        for group in ('priority', 'later'):
+            stats = result[group]
+            self.assertEqual(stats['mappedBytes'], stats['eligibleBytes'] + stats['nonresidentBytes'] + stats['pagemapUnknownBytes'])
+            self.assertEqual(stats['pagemapUnknownBytes'], 0)
+            self.assertEqual(stats['attemptedBytes'], stats['eligibleBytes'])
+            self.assertLessEqual(stats['swappedBytes'], stats['nonresidentBytes'])
+
+    def test_resident_scan_budget(self):
+        budget = 65536
+        result = self.scan_fixture(budget=budget, resident=True)
+        self.assertTrue(result['residentTruncated'])
+        for group in ('priority', 'later'):
+            self.assertEqual(result[group]['attemptedBytes'], budget)
 
     def test_disjoint_group_budgets_and_truncation(self):
         budget = 65536

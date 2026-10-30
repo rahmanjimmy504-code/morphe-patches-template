@@ -254,7 +254,7 @@ try:
                     # Attach only to the freshly installed game in the disposable emulator.
                     adb('push', helper, '/data/local/tmp/worldbox-proc-scan')
                     adb('shell', 'chmod', '755', '/data/local/tmp/worldbox-proc-scan')
-                    result = json.loads(adb('shell', '/data/local/tmp/worldbox-proc-scan', game_pid, timeout=360))
+                    result = json.loads(adb('shell', '/data/local/tmp/worldbox-proc-scan', game_pid, '--resident', timeout=360))
                     if result.get('kind') != 'result':
                         raise RuntimeError('Unexpected /proc scanner response.')
                     print('::warning title=WorldBox proc metadata scan::' + json.dumps(result, separators=(',', ':')))
