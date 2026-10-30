@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Inspect the public WorldBox 0.51.4 bundle without committing game files."""
 import hashlib
+import collections
+import math
 import html
 import os
 from pathlib import Path
@@ -46,6 +48,7 @@ try:
         print('Downloaded expected-size bundle. SHA-256:', hashlib.file_digest(target.open('rb'), 'sha256').hexdigest())
         native = None
         metadata = None
+        unity = None
         with zipfile.ZipFile(target) as bundle:
             apks = [n for n in bundle.namelist() if n.endswith('.apk')]
             if not apks:
@@ -56,13 +59,17 @@ try:
                 with bundle.open(name) as src, path.open('wb') as dst:
                     shutil.copyfileobj(src, dst)
                 with zipfile.ZipFile(path) as apk:
-                    relevant = [n for n in apk.namelist() if n.endswith('libil2cpp.so') or n.endswith('global-metadata.dat')]
+                    relevant = [n for n in apk.namelist() if n.endswith('libil2cpp.so') or n.endswith('global-metadata.dat') or n == 'lib/arm64-v8a/libunity.so']
                     for entry in relevant:
                         info = apk.getinfo(entry)
                         print(f'::notice title=WorldBox file::{name}: {entry} ({info.file_size} bytes)')
                         if entry == 'lib/arm64-v8a/libil2cpp.so':
                             native = Path(td) / 'libil2cpp.so'
                             with apk.open(entry) as src, native.open('wb') as dst:
+                                shutil.copyfileobj(src, dst)
+                        elif entry == 'lib/arm64-v8a/libunity.so':
+                            unity = Path(td) / 'libunity.so'
+                            with apk.open(entry) as src, unity.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
                         elif entry.endswith('global-metadata.dat'):
                             metadata = Path(td) / 'global-metadata.dat'
@@ -74,6 +81,23 @@ try:
         header = metadata.read_bytes()
         magic = b'\xaf\x1b\xb1\xfa'
         print('::notice title=WorldBox metadata::Header ' + header[:32].hex() + ' magic offset ' + str(header.find(magic)))
+        sample = header[:min(len(header), 1024 * 1024)]
+        counts = collections.Counter(sample)
+        entropy = -sum((n / len(sample)) * math.log2(n / len(sample)) for n in counts.values())
+        key = bytes(a ^ b for a, b in zip(header[:4], magic))
+        decoded_version = int.from_bytes(bytes(header[4+i] ^ key[i] for i in range(4)), 'little')
+        print(f'::notice title=WorldBox metadata::First MiB entropy {entropy:.4f}; four-byte XOR candidate version {decoded_version}')
+        for lib in [native, unity]:
+            if not lib:
+                continue
+            data = lib.read_bytes()
+            needles = [b'global-metadata.dat', b'il2cpp_init', b'AES_decrypt', b'AES_cbc_encrypt', b'EVP_DecryptInit', b'metadata.dat']
+            found = ', '.join(f'{needle.decode()}={data.find(needle)}' for needle in needles)
+            print(f'::notice title=WorldBox native markers::{lib.name}: {found}')
+            symbols = subprocess.run(['readelf', '-Ws', str(lib)], capture_output=True, text=True, check=True).stdout.splitlines()
+            matches = [line.strip() for line in symbols if re.search(r'il2cpp_init|MetadataLoader|AES_decrypt|EVP_Decrypt|metadata', line, re.I)]
+            for match in matches[:20]:
+                print('::notice title=WorldBox native symbol::' + match.replace('%', '%25')[:800])
 
         dumper = Path(td) / 'dumper'
         dumper.mkdir()
