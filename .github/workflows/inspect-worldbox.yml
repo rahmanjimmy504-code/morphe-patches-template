@@ -1,0 +1,20 @@
+name: Inspect WorldBox bundle
+on:
+  push:
+    branches: [arena/abffe0a5-morphe-patches-template]
+    paths:
+      - .github/workflows/inspect-worldbox.yml
+      - .github/scripts/inspect_worldbox.py
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: python -m pip install requests
+      - run: python .github/scripts/inspect_worldbox.py
