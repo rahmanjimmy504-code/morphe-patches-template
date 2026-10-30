@@ -99,6 +99,55 @@ try:
             for match in matches[:20]:
                 print('::notice title=WorldBox native symbol::' + match.replace('%', '%25')[:800])
 
+        # A third-party APK is treated only as untrusted bytes: never run or publish it.
+        # Different binaries are leads for manual analysis, not validated patches.
+        candidate_url = 'https://dowload.gosuperfunny.com/WorldBox-0.51.4-puremods.net.apk'
+        try:
+            candidate = Path(td) / 'untrusted-comparison.apk'
+            size = 0
+            with session.get(candidate_url, timeout=(30, 120), stream=True) as response:
+                response.raise_for_status()
+                with candidate.open('wb') as dst:
+                    for chunk in response.iter_content(1024 * 1024):
+                        size += len(chunk)
+                        if size > 250 * 1024 * 1024:
+                            raise RuntimeError('Comparison download exceeded the size limit')
+                        dst.write(chunk)
+            if not zipfile.is_zipfile(candidate):
+                raise RuntimeError('Comparison file is not an APK archive')
+            with zipfile.ZipFile(candidate) as archive:
+                entry = 'lib/arm64-v8a/libil2cpp.so'
+                info = archive.getinfo(entry)
+                if info.file_size > 100 * 1024 * 1024:
+                    raise RuntimeError('Comparison native library exceeded the size limit')
+                changed = archive.read(entry)
+            original = native.read_bytes()
+            print(f'::notice title=WorldBox comparison::Untrusted archive {size} bytes, original library {len(original)} bytes, comparison library {len(changed)} bytes')
+            if len(original) == len(changed):
+                ranges = []
+                start = None
+                changed_count = 0
+                for i, (a, b) in enumerate(zip(original, changed)):
+                    if a != b:
+                        changed_count += 1
+                        if start is None:
+                            start = i
+                    elif start is not None:
+                        if len(ranges) < 30:
+                            ranges.append((start, i))
+                        start = None
+                if start is not None and len(ranges) < 30:
+                    ranges.append((start, len(original)))
+                print(f'::notice title=WorldBox comparison::{changed_count} different bytes; first ranges ' + ', '.join(f'{a:#x}-{b:#x}' for a,b in ranges))
+                for begin, end in ranges[:15]:
+                    if end - begin <= 16:
+                        print(f'::notice title=WorldBox comparison bytes::{begin:#x}: {original[begin:end].hex()} -> {changed[begin:end].hex()}')
+            else:
+                print('::warning title=WorldBox comparison::Different library sizes; offsets cannot safely be compared directly')
+        except Exception as exc:
+            detail = re.sub(r'https?://\S+', '[URL]', str(exc)).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print('::warning title=WorldBox comparison::Untrusted comparison unavailable: ' + detail[:1000])
+
         dumper = Path(td) / 'dumper'
         dumper.mkdir()
         release = 'https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net7-v6.7.46.zip'
