@@ -5,6 +5,8 @@ on:
     paths:
       - .github/workflows/inspect-worldbox.yml
       - .github/scripts/inspect_worldbox.py
+      - .github/scripts/worldbox_runtime_scan.py
+      - docs/worldbox/scan-metadata.js
 permissions:
   contents: read
 jobs:
@@ -22,7 +24,7 @@ jobs:
       - run: python -m pip install requests
       - run: python .github/scripts/inspect_worldbox.py
   runtime-probe:
-    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' }}
+    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -31,6 +33,11 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m pip install requests
+      - name: Install runtime scanner dependencies
+        run: |
+          python -m pip install 'frida==17.25.0'
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/frida-server.xz" https://github.com/frida/frida/releases/download/17.25.0/frida-server-17.25.0-android-x86_64.xz
+          xz -d "$RUNNER_TEMP/frida-server.xz"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -44,7 +51,7 @@ jobs:
           arch: x86_64
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: WORLDBOX_RUNTIME_PROBE=1 python .github/scripts/inspect_worldbox.py
+          script: WORLDBOX_RUNTIME_PROBE=1 WORLDBOX_METADATA_SCAN=1 WORLDBOX_FRIDA_SERVER=$RUNNER_TEMP/frida-server python .github/scripts/inspect_worldbox.py
   rea-android-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 15

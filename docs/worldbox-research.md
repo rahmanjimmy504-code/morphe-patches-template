@@ -15,4 +15,12 @@ This is an investigation, **not a working Morphe patch**. No premium-unlock patc
 - [REA](https://github.com/morluto/rea) with JADX identified `com.unity.purchasing.common.UnityPurchasing` and Google Billing classes. REA observed that `OnProductsRetrieved` forwards serialized products through a bridge. This does **not** identify or bypass the actual premium entitlement check.
 - REA's IL2CPP metadata reader does not decrypt protected metadata. Native runtime analysis or a verified metadata-unpacking method is still needed to locate and validate a version-specific entitlement check.
 
-The branch's experimental inspection workflow deliberately reports the static IL2CPP dump failure. It is a research diagnostic, not a release or a compatibility test for a patch. Its runtime emulator probe is disabled unless the repository variable `WORLDBOX_RUNTIME_PROBE` is set to `1`.
+The branch's experimental inspection workflow warns when the static IL2CPP dumper cannot read the metadata; that warning is not a passing patch test. It is a research diagnostic, not a release or a compatibility test for a patch. Its runtime emulator probe is disabled unless the repository variable `WORLDBOX_RUNTIME_PROBE` is set to `1`.
+
+## Experimental runtime scan
+
+The read-only scanner in `docs/worldbox/scan-metadata.js` was adapted from the research in [PR #1](https://github.com/rahmanjimmy504-code/morphe-patches-template/pull/1). It uses the Frida 17 pointer API and sends only aggregate candidate counts, versions and scan coverage; it does not save or transmit process-memory bytes. A candidate is only a heuristic and must not be treated as verified metadata. A zero count also does not prove the metadata is absent, especially if the scan is truncated or reads fail.
+
+The branch-only runtime workflow installs the original ARM64 base and split APKs on a disposable Android emulator and attaches to the exact game PID. It does not publish the APK or any metadata. It can be enabled with the `WORLDBOX_RUNTIME_PROBE` repository variable or by including `[worldbox-runtime]` in a commit message that changes one of the workflow's watched paths. This is a research workflow, not a premium patch.
+
+Local synthetic checks: `node tests/worldbox-metadata-scanner.test.cjs` and `bash -n docs/worldbox/triage-static.sh`. These checks do not prove the scanner works against WorldBox.

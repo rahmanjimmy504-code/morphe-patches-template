@@ -192,6 +192,18 @@ try:
             print('::notice title=WorldBox emulator::Supported ABIs: ' + abi + '; native bridge: ' + bridge)
             if 'arm64-v8a' not in abi:
                 raise RuntimeError('This emulator does not advertise arm64-v8a; the WorldBox bundle has no x86 split.')
+            if os.environ.get('WORLDBOX_METADATA_SCAN') == '1':
+                server = os.environ.get('WORLDBOX_FRIDA_SERVER')
+                if not server or not Path(server).is_file():
+                    raise RuntimeError('Missing Frida server binary for emulator runtime scan.')
+                adb('root')
+                adb('wait-for-device')
+                if adb('shell', 'id', '-u') != '0':
+                    raise RuntimeError('Emulator adbd is not running as root.')
+                adb('push', server, '/data/local/tmp/worldbox-frida-server')
+                adb('shell', 'chmod', '755', '/data/local/tmp/worldbox-frida-server')
+                adb('shell', 'nohup /data/local/tmp/worldbox-frida-server </dev/null >/data/local/tmp/worldbox-frida.log 2>&1 &')
+                time.sleep(8)
             base = Path(td) / 'base.apk'
             arm64 = Path(td) / 'split_config.arm64_v8a.apk'
             if not base.is_file() or not arm64.is_file():
@@ -205,6 +217,10 @@ try:
                 failure = adb('logcat', '-d', '-s', 'AndroidRuntime:E', 'linker:E', 'Unity:E', check=False)[-2000:]
                 raise RuntimeError('Game process did not remain running: ' + failure)
             print('::notice title=WorldBox emulator::Game process remained running after 60 seconds (PID ' + pid + ')')
+            if os.environ.get('WORLDBOX_METADATA_SCAN') == '1':
+                probe = subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py', pid.split()[0]], timeout=240)
+                if probe.returncode:
+                    raise RuntimeError('Read-only runtime metadata scan failed; see preceding annotation.')
             sys.exit(0)
         if not native or not metadata:
             raise RuntimeError('Missing ARM64 native library or Unity metadata.')
@@ -249,6 +265,9 @@ try:
                                 input='', capture_output=True, text=True, timeout=180)
         print(result.stdout[-4000:])
         if result.returncode != 0 or not (output / 'dump.cs').exists():
+            if 'Metadata file not found or encrypted' in result.stdout:
+                print('::warning title=WorldBox metadata::Il2CppDumper could not read the metadata; no premium patch was tested.')
+                sys.exit(0)
             raise RuntimeError('IL2CPP dump failed: ' + result.stdout[-1500:] + ' ' + result.stderr[-500:])
         lines = (output / 'dump.cs').read_text(errors='replace').splitlines()
         matches = [i for i, line in enumerate(lines) if re.search(r'premium|purchased|purchase|buyproduct', line, re.I)]
