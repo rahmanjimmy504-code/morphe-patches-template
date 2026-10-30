@@ -182,8 +182,8 @@ try:
             sys.exit(0)
         if os.environ.get('WORLDBOX_RUNTIME_PROBE') == '1':
             import time
-            def adb(*args, check=True):
-                result = subprocess.run(['adb', *args], capture_output=True, text=True, timeout=180)
+            def adb(*args, check=True, timeout=180):
+                result = subprocess.run(['adb', *args], capture_output=True, text=True, timeout=timeout)
                 if check and result.returncode:
                     raise RuntimeError('ADB operation failed: ' + (result.stderr or result.stdout)[-1000:])
                 return result.stdout.strip()
@@ -254,7 +254,7 @@ try:
                     # Attach only to the freshly installed game in the disposable emulator.
                     adb('push', helper, '/data/local/tmp/worldbox-proc-scan')
                     adb('shell', 'chmod', '755', '/data/local/tmp/worldbox-proc-scan')
-                    result = json.loads(adb('shell', '/data/local/tmp/worldbox-proc-scan', game_pid))
+                    result = json.loads(adb('shell', '/data/local/tmp/worldbox-proc-scan', game_pid, timeout=360))
                     if result.get('kind') != 'result':
                         raise RuntimeError('Unexpected /proc scanner response.')
                     print('::warning title=WorldBox proc metadata scan::' + json.dumps(result, separators=(',', ':')))
