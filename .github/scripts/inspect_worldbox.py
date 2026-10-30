@@ -109,6 +109,31 @@ try:
                 print('::notice title=REA Android class search::' + term + ': ' + ('; '.join(found[:15]) or 'no matching class names reported'))
             if not success:
                 raise RuntimeError('All REA Android class searches failed.')
+            detail = invoke_rea('inspect-android-method', base, 'com.unity.purchasing.common.UnityPurchasing', 'OnProductsRetrieved')
+            if detail:
+                def texts(value, depth=0):
+                    if depth > 12:
+                        return
+                    if isinstance(value, str):
+                        yield value
+                        if len(value) < 2_000_000 and value.lstrip().startswith(('{', '[')):
+                            try:
+                                yield from texts(json.loads(value), depth + 1)
+                            except (json.JSONDecodeError, RecursionError):
+                                pass
+                    elif isinstance(value, dict):
+                        for part in value.values():
+                            yield from texts(part, depth + 1)
+                    elif isinstance(value, list):
+                        for part in value:
+                            yield from texts(part, depth + 1)
+                snippets = set()
+                for value in texts(detail):
+                    if 'OnProductsRetrieved' in value and ('\n' in value or 'UnitySendMessage' in value) and len(value) < 5000:
+                        clean = value.strip().replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                        snippets.add(clean[:1000])
+                for snippet in sorted(snippets)[:3]:
+                    print('::notice title=REA OnProductsRetrieved::' + snippet)
             for class_name in ('com.unity.purchasing.common.UnityPurchasing', 'com.unity3d.player.UnityPlayer'):
                 data = invoke_rea('inspect-android-class', base, class_name)
                 if data is None:
