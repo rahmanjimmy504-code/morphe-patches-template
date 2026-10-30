@@ -105,6 +105,30 @@ class NativeXrefsTest(unittest.TestCase):
         self.assertEqual(source['examples'][0]['target'], '0x3080')
         self.assertEqual(source['examples'][0]['returns'][0]['x0'], ['entry-argument-1'])
 
+    def test_mapping_source_callee_resolves_safe_import(self):
+        data = fixture(eh_frame=True, origin_helper=True, helper_calls_import=True)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = refs.inspect(path, target=0x2000)
+        source = report['directTailBranches']['argumentSourceCallees']
+        ret = source['examples'][0]['returns'][0]
+        self.assertEqual(ret['x0'], ['return-from-open@0x3080'])
+        self.assertEqual(ret['callOrigins'][0]['recognizedApi'], 'open')
+
+    def test_unknown_import_name_is_redacted(self):
+        data = fixture(eh_frame=True, origin_helper=True, helper_calls_import=True)
+        elf = ELFFile(io.BytesIO(data))
+        strings = elf.get_section_by_name('.dynstr')
+        data[strings['sh_offset'] + 1:strings['sh_offset'] + 5] = b'evil'
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = refs.inspect(path, target=0x2000)
+        ret = report['directTailBranches']['argumentSourceCallees']['examples'][0]['returns'][0]
+        self.assertEqual(ret['callOrigins'][0]['recognizedApi'], 'other-import')
+        self.assertNotIn('evil', str(ret))
+
     def test_rejects_other_architecture(self):
         data = fixture()
         data[18:20] = struct.pack('<H', 62)

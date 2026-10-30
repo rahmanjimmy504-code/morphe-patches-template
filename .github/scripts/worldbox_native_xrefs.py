@@ -108,6 +108,32 @@ def is_packed_relocation_type(section_type):
     )
 
 
+SAFE_IMPORTS = triage.WATCHED | frozenset({
+    'malloc', 'calloc', 'realloc', 'free', 'posix_memalign', 'aligned_alloc',
+    'strlen', 'strnlen', 'strcpy', 'strncpy', 'strdup', 'strstr', 'strcmp', 'strncmp',
+    'wcslen', 'wcstombs', 'mbstowcs', 'iconv', 'iconv_open', 'iconv_close',
+    '__strlen_chk', '__memcpy_chk', '__memmove_chk', '__strcpy_chk', '__strncpy_chk',
+    '_Znwm', '_Znam', '_ZdlPv', '_ZdaPv', '__cxa_allocate_exception', '__cxa_throw',
+})
+
+
+def safe_import_plt(elf):
+    """Match import stubs but emit names only from a predefined system API list."""
+    relocs = {}
+    for section in elf.iter_sections():
+        if not isinstance(section, RelocationSection) or '.plt' not in section.name:
+            continue
+        symbols = elf.get_section(section['sh_link'])
+        if not isinstance(symbols, SymbolTableSection):
+            continue
+        for rel in section.iter_relocations():
+            index = rel['r_info_sym']
+            if index < symbols.num_symbols():
+                name = symbols.get_symbol(index).name
+                relocs[rel['r_offset']] = name if name in SAFE_IMPORTS else 'other-import'
+    return triage.plt_targets(elf, relocs)[0]
+
+
 def inspect(path, target=TARGET):
     with Path(path).open('rb') as f:
         elf = ELFFile(f)
@@ -270,6 +296,7 @@ def inspect(path, target=TARGET):
                         if origin['site'] in x0_sites and origin.get('kind') == 'direct' and origin.get('target'):
                             origin_targets.add(int(origin['target'], 16))
             source_callees = {'uniqueTargets': len(origin_targets), 'sampleLimit': 4, 'examples': []}
+            imports = safe_import_plt(elf)
             for destination in sorted(origin_targets)[:4]:
                 frame = flow.frame_for_site(frames, starts, destination)
                 if not frame:
@@ -281,7 +308,7 @@ def inspect(path, target=TARGET):
                     source_callees['examples'].append({'target': hex(destination), 'status': 'unusable-or-too-large-range'})
                     continue
                 f.seek(sec['sh_offset'] + destination - sec['sh_addr'])
-                result = flow.analyze_window(f.read(hi - destination), destination, {}, {}, classify, capture_returns=True)
+                result = flow.analyze_window(f.read(hi - destination), destination, imports, {}, classify, capture_returns=True)
                 source_callees['examples'].append({'target': hex(destination), 'unwindStart': hex(lo),
                                                    'workLimitReached': result['workLimitReached'],
                                                    'returns': result['returns'], 'returnsTruncated': result['returnsTruncated'],

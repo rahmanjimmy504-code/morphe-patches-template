@@ -15,7 +15,7 @@ def branch(pc, target):
     return 0x94000000 | (((target - pc) // 4) & 0x03ffffff)
 
 
-def fixture(broken_stub=False, via_helper=False, eh_frame=False, split_frames=False, origin_helper=False):
+def fixture(broken_stub=False, via_helper=False, eh_frame=False, split_frames=False, origin_helper=False, helper_calls_import=False):
     """Construct a minimal AArch64 ELF with an imported open() PLT and init array."""
     names = ['', '.shstrtab', '.dynstr', '.dynsym', '.rela.plt', '.rela.dyn', '.plt', '.text', '.init_array']
     shstr = b'\0'
@@ -35,7 +35,8 @@ def fixture(broken_stub=False, via_helper=False, eh_frame=False, split_frames=Fa
         b_tail = 0x14000000 | (((0x2000 - 0x3040) // 4) & 0x03ffffff)
         text = struct.pack('<3I', branch(0x3000, 0x3080), branch(0x3004, 0x3040), 0xd65f03c0)
         text += bytes(0x40 - len(text)) + struct.pack('<2I', b_tail, 0xd65f03c0)
-        text += bytes(0x80 - len(text)) + struct.pack('<2I', 0xaa0103e0, 0xd65f03c0)  # mov x0,x1; ret
+        helper_word = branch(0x3080, 0x2020) if helper_calls_import else 0xaa0103e0  # bl open or mov x0,x1
+        text += bytes(0x80 - len(text)) + struct.pack('<2I', helper_word, 0xd65f03c0)
     elif via_helper:
         text = struct.pack('<2I', branch(0x3000, 0x3040), 0xd65f03c0) + bytes(56) + struct.pack('<2I', branch(0x3040, 0x2020), 0xd65f03c0)
     else:
