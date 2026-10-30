@@ -113,6 +113,33 @@ try:
                 data = invoke_rea('inspect-android-class', base, class_name)
                 if data is None:
                     continue
+                def objects(value, depth=0):
+                    if depth > 12:
+                        return
+                    if isinstance(value, dict):
+                        yield value
+                        for item in value.values():
+                            yield from objects(item, depth + 1)
+                    elif isinstance(value, list):
+                        for item in value:
+                            yield from objects(item, depth + 1)
+                    elif isinstance(value, str) and len(value) < 2_000_000 and value.lstrip().startswith(('{', '[')):
+                        try:
+                            yield from objects(json.loads(value), depth + 1)
+                        except (json.JSONDecodeError, RecursionError):
+                            pass
+                seen = set()
+                for obj in objects(data):
+                    if obj.get('full_name') == class_name and isinstance(obj.get('methods'), list):
+                        for method in obj['methods']:
+                            if not isinstance(method, dict):
+                                continue
+                            name = str(method.get('name', ''))
+                            if name and (class_name.endswith('UnityPurchasing') or re.search(r'purchase|billing|product', name, re.I)):
+                                summary = json.dumps(method, ensure_ascii=True, separators=(',', ':'))[:900]
+                                if summary not in seen:
+                                    seen.add(summary)
+                                    print('::notice title=REA method inventory::' + class_name + ': ' + summary.replace('%', '%25'))
                 snippets = []
                 for value in strings(data):
                     if len(value) > 1000 and ('class ' in value or 'UnitySendMessage' in value):
