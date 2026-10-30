@@ -65,6 +65,13 @@ class NativeTriageTest(unittest.TestCase):
         self.assertEqual(scan.direct_branch(branch(0x1000, 0x2000), 0x1000), 0x2000)
         self.assertIsNone(scan.direct_branch(0xd65f03c0, 0x1000))
 
+    def test_nearby_calls_and_safe_string_categories(self):
+        data = struct.pack('<3I', branch(0x1000, 0x2000), branch(0x1004, 0x2010), 0xd65f03c0)
+        self.assertEqual(scan.nearby_calls(data, 0x1000, {0x2000: 'open', 0x2010: 'read'}), [(0x1000, 'open'), (0x1004, 'read')])
+        self.assertEqual(scan.string_category(b'/proc/self/maps\0'), 'proc-path')
+        self.assertEqual(scan.string_category(b'global-metadata.dat\0'), 'metadata-name')
+        self.assertIsNone(scan.string_category(b'private-string\0'))
+
     def test_real_elf_parse_plt_and_relocated_initializer(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'sample.so'

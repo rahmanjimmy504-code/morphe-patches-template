@@ -18,7 +18,8 @@ from elftools.elf.sections import SymbolTableSection
 
 WATCHED = frozenset({
     'open', 'open64', '__open_2', 'openat', '__openat_2', 'fopen', 'fopen64',
-    'read', 'pread', 'pread64', 'mmap', 'mmap64', 'munmap', 'mprotect',
+    'read', 'pread', 'pread64', 'close', 'lseek', 'lseek64', 'fstat', 'fstat64', 'stat',
+    'AAssetManager_open', 'AAsset_read', 'mmap', 'mmap64', 'munmap', 'mprotect',
     'dlopen', 'android_dlopen_ext', 'dlsym', 'memcpy', 'memmove',
     'AES_decrypt', 'AES_cbc_encrypt', 'EVP_DecryptInit', 'EVP_DecryptInit_ex',
 })
@@ -29,6 +30,7 @@ WINDOW_BYTES = 512
 TRACE_NODES = 256
 TRACE_DEPTH = 2
 SAMPLE_LIMIT = 4
+NEARBY_APIS = WATCHED - {'memcpy', 'memmove'}
 
 
 def direct_branch(word, pc):
@@ -45,6 +47,57 @@ def instructions(data, base):
     usable = len(data) & ~3
     for index, (word,) in enumerate(struct.iter_unpack('<I', data[:usable])):
         yield base + 4 * index, word
+
+
+def nearby_calls(data, base, plt):
+    """Direct calls within a window, without claiming function or CFG boundaries."""
+    result = []
+    for pc, word in instructions(data, base):
+        name = plt.get(direct_branch(word, pc))
+        if name in NEARBY_APIS:
+            result.append((pc, name))
+    return result
+
+
+def string_category(data):
+    """Return only a safe, predefined category, never literal strings."""
+    s = data.split(b'\0', 1)[0].lower()
+    if s.startswith(b'/proc/'):
+        return 'proc-path'
+    if s.startswith(b'global-metadata.dat') or s.startswith(b'metadata.dat'):
+        return 'metadata-name'
+    if s.startswith(b'assets/bin/data/'):
+        return 'unity-assets-path'
+    return None
+
+
+def nearby_string_categories(elf, f, data, base):
+    # ADRP+ADD references are common but not exhaustive; limit the lifetime of
+    # an ADRP value to reduce stale-register false positives. Only categorize
+    # constants in allocated, non-writable, non-executable ELF sections.
+    decoder = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
+    decoder.detail = True
+    bases, found = {}, set()
+    sections = [s for s in elf.iter_sections() if s['sh_type'] != 'SHT_NOBITS'
+                and s['sh_flags'] & 2 and not s['sh_flags'] & (1 | 4)]
+    for ins in decoder.disasm(data, base):
+        ops = ins.operands
+        if ins.mnemonic == 'adrp' and len(ops) >= 2 and ops[0].type == ARM64_OP_REG and ops[1].type == ARM64_OP_IMM:
+            bases[ops[0].reg] = (ins.address, ops[1].imm)
+        elif ins.mnemonic == 'add' and len(ops) >= 3 and ops[1].type == ARM64_OP_REG and ops[2].type == ARM64_OP_IMM:
+            ref = bases.get(ops[1].reg)
+            if not ref or ins.address - ref[0] > 32:
+                continue
+            target = ref[1] + (ops[2].imm << ops[2].shift.value)
+            sec = next((x for x in sections if x['sh_addr'] <= target < x['sh_addr'] + x['sh_size']), None)
+            if not sec:
+                continue
+            offset = target - sec['sh_addr']
+            f.seek(sec['sh_offset'] + offset)
+            category = string_category(f.read(min(128, sec['sh_size'] - offset)))
+            if category:
+                found.add(category)
+    return sorted(found)
 
 
 def plt_targets(elf, relocs):
@@ -144,6 +197,7 @@ def inspect(path):
         plt, matched_stubs = plt_targets(elf, relocs)
         executable = [sec for sec in elf.iter_sections() if sec['sh_flags'] & 4 and sec['sh_type'] != 'SHT_NOBITS']
         calls = {name: {'count': 0, 'sampleSites': []} for name in sorted(imports)}
+        nearby_sites = []
         scanned, total = 0, sum(sec['sh_size'] for sec in executable)
         for sec in executable:
             remaining = MAX_EXEC - scanned
@@ -154,6 +208,8 @@ def inspect(path):
                 name = plt.get(direct_branch(word, pc))
                 if name in calls:
                     calls[name]['count'] += 1
+                    if name in NEARBY_APIS and len(nearby_sites) < 512:
+                        nearby_sites.append((pc, name))
                     if len(calls[name]['sampleSites']) < SAMPLE_LIMIT:
                         calls[name]['sampleSites'].append(hex(pc))
             scanned += len(data)
@@ -214,6 +270,35 @@ def inspect(path):
                     queue.append((target, depth + 1, origin))
         trace = {name: {'distinctSites': len(sites), 'examples': list(sites.values())[:SAMPLE_LIMIT]}
                  for name, sites in sorted(trace_sites.items())}
+        # Nearby calls are only spatial clues; the window may span functions or
+        # unreachable code. Prioritize a traced call and an open+read pair.
+        nearby = {}
+        trace_pcs = {pc for sites in trace_sites.values() for pc in sites}
+        site_limit_reached = len(nearby_sites) == 512
+        stored = {pc for pc, _ in nearby_sites}
+        for name, sites in trace_sites.items():
+            if name in NEARBY_APIS:
+                nearby_sites.extend((pc, name) for pc in sites if pc not in stored)
+        for site, _ in nearby_sites:
+            sec = next((part for part in executable if part['sh_addr'] <= site < part['sh_addr'] + part['sh_size']), None)
+            if not sec:
+                continue
+            start = max(sec['sh_addr'], site - 512)
+            end = min(sec['sh_addr'] + sec['sh_size'], site + 516)
+            f.seek(sec['sh_offset'] + start - sec['sh_addr'])
+            data = f.read(end - start)
+            near = nearby_calls(data, start, plt)
+            api_names = {name for _, name in near}
+            if len(api_names) < 2:
+                continue
+            key = tuple(near)
+            if key in nearby:
+                continue
+            categories = nearby_string_categories(elf, f, data, start)
+            score = (bool(trace_pcs.intersection(pc for pc, _ in near)), 'open' in api_names and 'read' in api_names, len(api_names))
+            nearby[key] = (score, {'calls': [{'api': name, 'site': hex(pc)} for pc, name in near[:12]],
+                                   'callCount': len(near), 'stringCategories': categories})
+        ranked = sorted(nearby.values(), key=lambda value: value[0], reverse=True)
         return {
             'kind': 'arm64-static-triage',
             'watchedImports': sorted(imports), 'selectedExports': sorted(exports),
@@ -225,7 +310,10 @@ def inspect(path):
             'initializerTrace': {'windowBytes': WINDOW_BYTES, 'maxDepth': TRACE_DEPTH,
                                  'visitedWindows': len(visited), 'nodeLimitReached': bool(queue),
                                  'watchedDirectCalls': trace},
-            'limitations': 'Linear BL sweep and bounded heuristic initializer windows are not a proven call graph; indirect calls, other PLT formats, packed code and control flow may be missed.',
+            'nearbyImportWindows': {'windowBytes': 1028, 'eligibleWindows': len(ranked),
+                                    'siteLimitReached': site_limit_reached,
+                                    'examples': [item for _, item in ranked[:8]]},
+            'limitations': 'Linear BL sweep and bounded heuristic initializer windows are not a proven call graph; indirect calls, other PLT formats, packed code and control flow may be missed; nearby sites and categorized constants do not establish function boundaries or purpose.',
         }
 
 
