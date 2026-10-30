@@ -100,7 +100,7 @@ try:
                     for item in value.values():
                         yield from strings(item)
             success = 0
-            for term in ('Billing', 'Purchasing', 'UnityPlayer'):
+            for term in ('Purchasing',):
                 data = invoke_rea('search-android-classes', base, term)
                 if data is None:
                     continue
@@ -109,7 +109,7 @@ try:
                 print('::notice title=REA Android class search::' + term + ': ' + ('; '.join(found[:15]) or 'no matching class names reported'))
             if not success:
                 raise RuntimeError('All REA Android class searches failed.')
-            detail = invoke_rea('inspect-android-method', base, 'com.unity.purchasing.common.UnityPurchasing', 'OnProductsRetrieved')
+            detail = invoke_rea('inspect-android-method', base, 'com.unity.purchasing.common.UnityPurchasing', 'SerialiseProducts')
             if detail:
                 def texts(value, depth=0):
                     if depth > 12:
@@ -129,12 +129,12 @@ try:
                             yield from texts(part, depth + 1)
                 snippets = set()
                 for value in texts(detail):
-                    if 'OnProductsRetrieved' in value and ('\n' in value or 'UnitySendMessage' in value) and len(value) < 5000:
+                    if 'SerialiseProducts' in value and ('\n' in value or 'UnitySendMessage' in value) and len(value) < 5000:
                         clean = value.strip().replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
                         snippets.add(clean[:1000])
                 for snippet in sorted(snippets)[:3]:
-                    print('::notice title=REA OnProductsRetrieved::' + snippet)
-            for class_name in ('com.unity.purchasing.common.UnityPurchasing', 'com.unity3d.player.UnityPlayer'):
+                    print('::notice title=REA SerialiseProducts::' + snippet)
+            for class_name in ('com.unity.purchasing.common.UnityPurchasing', 'com.unity.purchasing.common.ProductDescription'):
                 data = invoke_rea('inspect-android-class', base, class_name)
                 if data is None:
                     continue
@@ -155,6 +155,10 @@ try:
                             pass
                 seen = set()
                 for obj in objects(data):
+                    if obj.get('full_name') == class_name and class_name.endswith('ProductDescription') and isinstance(obj.get('fields'), list):
+                        for field in obj['fields']:
+                            if isinstance(field, dict):
+                                print('::notice title=REA product field::' + json.dumps(field, ensure_ascii=True, separators=(',', ':'))[:900].replace('%', '%25'))
                     if obj.get('full_name') == class_name and isinstance(obj.get('methods'), list):
                         for method in obj['methods']:
                             if not isinstance(method, dict):
