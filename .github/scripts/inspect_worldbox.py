@@ -109,6 +109,20 @@ try:
                 print('::notice title=REA Android class search::' + term + ': ' + ('; '.join(found[:15]) or 'no matching class names reported'))
             if not success:
                 raise RuntimeError('All REA Android class searches failed.')
+            for class_name in ('com.unity.purchasing.common.UnityPurchasing', 'com.unity3d.player.UnityPlayer'):
+                data = invoke_rea('inspect-android-class', base, class_name)
+                if data is None:
+                    continue
+                snippets = []
+                for value in strings(data):
+                    if len(value) > 1000 and ('class ' in value or 'UnitySendMessage' in value):
+                        lines = value.splitlines()
+                        for i, line in enumerate(lines):
+                            if re.search(r'purchase|billing|product|UnitySendMessage|native', line, re.I):
+                                snippets.append(' | '.join(x.strip() for x in lines[max(0, i-1):i+2])[:500])
+                for snippet in list(dict.fromkeys(snippets))[:30]:
+                    print('::notice title=REA purchasing bridge::' + class_name + ': ' + snippet.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+                print('::notice title=REA class analysis::' + class_name + ': inspected; matching source snippets ' + str(len(snippets)))
             sys.exit(0)
         if os.environ.get('WORLDBOX_RUNTIME_PROBE') == '1':
             import time
