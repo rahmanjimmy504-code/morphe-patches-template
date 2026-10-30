@@ -378,11 +378,64 @@ install and never publish the patched package.
 * This repo is GPL-3.0: don't vendor code from repositories without a licence
   (two of the dumpers in §4 have none), and note that Il2CppInspector is AGPL-3.0.
 
-Relation to Morphe patches: the Morphe patcher APIs documented upstream operate
-on dex/smali (`Document`, `smali`) and resources. Nothing in those docs covers
-rewriting `lib/**/*.so`. So IL2CPP work here is **patch-development research**,
-not something a Morphe patch can currently ship — verify before promising a
-WorldBox patch to users.
+### 9.1 Native libraries and Morphe patches — correction (2026-10-30)
+
+An earlier revision of this note said the Morphe patcher only covers dex/smali
+and resources, so a native `.so` could not be shipped in a patch. **That was
+wrong**, and the correction matters for how this research is used.
+
+`ResourcePatchContext`
+([source](https://github.com/MorpheApp/morphe-patcher/blob/main/src/main/kotlin/app/morphe/patcher/patch/ResourcePatchContext.kt))
+hands patches a resource layer that treats `lib/**/*.so` as ordinary APK entries.
+From the upstream API docs
+([`docs/4_apis.md`](https://github.com/MorpheApp/morphe-patcher/blob/main/docs/4_apis.md)):
+
+| Capability | Detail |
+| --- | --- |
+| `get(String, Boolean)` | Read/write any APK entry; pass `false` as the second argument to get the file **without decoding it, to replace or add a file** |
+| `listApkEntries(String)` | Lists archive entries, e.g. `listApkEntries("lib/")`; names are archive names, so they feed straight into `get` |
+| `delete(String)` | Accepts archive paths and directories — the upstream example keeps a single ABI by deleting every other `lib/<abi>/` entry |
+| Native libraries are not staged | They stay in the input archive rather than in the working directory, so `get`/`listApkEntries` is the supported route, not `File` walking |
+| Alignment on write | `ApkUtils.writeAlignedApk` applies a dedicated `.so` alignment (`ZipAligner` with a library-specific alignment), and `routeNativeLibrariesIfCompressionChanged()` restages libraries when a patch changes `android:extractNativeLibs` |
+| ABI selection | `PatcherConfig.keepArchitectures` / `stripNativeLibraries()` can strip architectures |
+| Split awareness | The coder keeps a per-package resource directory and `getFile(path, packageName)` exists, i.e. it is aware that one logical app can span several APKs |
+
+So a WorldBox patch that **replaces `lib/arm64-v8a/libil2cpp.so` (and
+`lib/armeabi-v7a/libil2cpp.so`) with a patched build is expressible** in the
+current API. What the patcher does not do is *edit ARM instructions*: you produce
+the patched library yourself (Ghidra, see §3), ship it as an extension resource,
+and write it into place with `get("lib/arm64-v8a/libil2cpp.so", false)`.
+
+What is still **not established** — test these before promising anything:
+
+1. **Split APKs.** WorldBox 0.51.4 ships as a bundle; the libraries may live in
+   a configuration split (`split_config.arm64_v8a.apk`) rather than in `base`.
+   The per-package plumbing exists, but round-tripping a *modified* library out
+   of a non-base split is untested. Test with a real `.apks` first.
+2. **Compression/alignment after modification.** IL2CPP libraries are usually
+   stored uncompressed and page-aligned (`extractNativeLibs=false`). The patcher
+   aligns on write, but a replaced, larger `.so` is exactly the case that
+   historically breaks `dlopen` (`unexpected e_machine`, `has unexpected
+   PT_LOAD segments`, or a silent refusal to map). Verify with
+   `zipalign -c -v 4` and by actually launching the patched build.
+3. **Both ABIs.** A translator-equipped emulator may load the armv7 copy; a real
+   device loads arm64. Either patch both or strip the one you did not patch
+   (`keepArchitectures`), never ship a mismatched pair.
+4. **Metadata/binary pairing.** A patched `libil2cpp.so` must stay consistent
+   with the shipped `global-metadata.dat` (method indices, type layouts). This is
+   why §8.3 insists on pairing files dumped from the same process.
+5. **Integrity checks.** Any self-hash or signature check in the native code will
+   reject a modified library; nothing here establishes whether WorldBox has one.
+
+Minimal feasibility test, in order: (a) patch nothing but rewrite one `.so` with
+its own bytes and confirm the app still starts; (b) replace it with a
+one-instruction `RET` patch in an unreachable-looking function and confirm the
+app still starts; (c) only then attempt a behavioural patch. Step (a) separates
+"patching the library" from "our ARM patch is wrong".
+
+Consequence for this research: recovery of the metadata stays worthwhile even if
+patches ship as binary-library replacements — you need the type/method layout to
+know *where* to patch, and the string literals to know *what* to patch.
 
 ---
 
