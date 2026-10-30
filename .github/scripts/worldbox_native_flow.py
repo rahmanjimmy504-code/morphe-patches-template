@@ -214,7 +214,8 @@ def analyze_window(data, start, plt, targets, classify):
         arg_regs = {'open': (0, 1), 'read': (0, 1, 2), 'fstat': (0, 1),
                     'mmap': (0, 1, 2, 3, 4, 5), 'munmap': (0, 1),
                     'wrapper-open': (0, 1, 2, 3, 4, 5), 'wrapper-mmap': (0, 1, 2, 3, 4, 5),
-                    'wrapper-mapparent': (0, 1, 2, 3, 4, 5), 'tail-mapparent': (0, 1, 2, 3, 4, 5)}.get(expected, ())
+                    'wrapper-mapparent': (0, 1, 2, 3, 4, 5), 'tail-mapparent': (0, 1, 2, 3, 4, 5),
+                    'tail-parent-caller': (0, 1, 2, 3, 4, 5)}.get(expected, ())
         results.append({'site': hex(pc), 'api': expected, 'reachedInModel': observed is not None,
                         'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {}})
     return {'decodedInstructions': len(code), 'visitedInstructions': len(seen), 'branchVisits': branch_count,

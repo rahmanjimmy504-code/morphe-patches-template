@@ -237,6 +237,28 @@ def inspect(path, target=TARGET):
                         entry[call_type] += 1
                         if len(entry['sampleSites']) < SAMPLES:
                             entry['sampleSites'].append({'site': hex(pc), 'kind': call_type})
+            # Model up to four enclosing callers per tail function.  This is
+            # bounded intraprocedural dataflow, not a proven call chain.
+            for target_hex, info in tail_callers.items():
+                destination = int(target_hex, 16)
+                info['argumentExamples'] = []
+                for sample in info['sampleSites'][:4]:
+                    site = int(sample['site'], 16)
+                    frame = flow.frame_for_site(frames, starts, site)
+                    if not frame:
+                        info['argumentExamples'].append({'site': sample['site'], 'status': 'no-unwind-range'})
+                        continue
+                    lo, hi = frame
+                    sec = next((part for part in executable if part['sh_addr'] <= lo and hi <= part['sh_addr'] + part['sh_size']), None)
+                    if not sec or hi - lo > flow.MAX_FUNCTION or lo % 4:
+                        info['argumentExamples'].append({'site': sample['site'], 'status': 'unusable-or-too-large-range'})
+                        continue
+                    f.seek(sec['sh_offset'] + lo - sec['sh_addr'])
+                    result = flow.analyze_window(f.read(hi - lo), lo, {destination: 'tail-parent-caller'},
+                                                 {site: 'tail-parent-caller'}, classify)
+                    info['argumentExamples'].append({'site': sample['site'], 'function': hex(lo),
+                                                     'workLimitReached': result['workLimitReached'],
+                                                     'call': result['calls'][0]})
         return {
             'kind': 'arm64-static-xrefs', 'target': hex(target),
             'symbolMatches': target_symbol_count,

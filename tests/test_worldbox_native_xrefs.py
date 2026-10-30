@@ -77,6 +77,23 @@ class NativeXrefsTest(unittest.TestCase):
         self.assertTrue(trace['call']['reachedInModel'])
         self.assertEqual(trace['call']['arguments']['x0'], ['entry-argument-0'])
 
+    def test_tail_caller_arguments_in_separate_unwind_range(self):
+        data = fixture(via_helper=True, eh_frame=True, split_frames=True)
+        elf = ELFFile(io.BytesIO(data))
+        text = elf.get_section_by_name('.text')
+        struct.pack_into('<I', data, text['sh_offset'] + 0x40, tail(0x3040, 0x2000))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = refs.inspect(path, target=0x2000)
+        found = report['directTailBranches']
+        self.assertEqual(found['traces'][0]['function'], '0x3040')
+        caller = found['enclosingFunctionCallers']['0x3040']
+        self.assertEqual(caller['directCalls'], 1)
+        self.assertEqual(caller['argumentExamples'][0]['function'], '0x3000')
+        self.assertTrue(caller['argumentExamples'][0]['call']['reachedInModel'])
+        self.assertEqual(caller['argumentExamples'][0]['call']['arguments']['x0'], ['entry-argument-0'])
+
     def test_rejects_other_architecture(self):
         data = fixture()
         data[18:20] = struct.pack('<H', 62)
