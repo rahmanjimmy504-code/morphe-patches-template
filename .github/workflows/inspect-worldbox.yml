@@ -22,6 +22,7 @@ jobs:
       - run: python -m pip install requests
       - run: python .github/scripts/inspect_worldbox.py
   runtime-probe:
+    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -44,3 +45,31 @@ jobs:
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
           script: WORLDBOX_RUNTIME_PROBE=1 python .github/scripts/inspect_worldbox.py
+  rea-android-probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - run: python -m pip install requests
+      - name: Install pinned REA and verify JADX engine
+        run: |
+          npm install --prefix "$RUNNER_TEMP/rea" --ignore-scripts rea-agents@6.8.0
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/jadx.jar" https://github.com/1013503897/jadx-headless-mcp/releases/download/v0.7.1/jadx-headless-mcp-0.7.1-all.jar
+          echo "6e5eacf500b64292bfb73c49797c1958f6ee44646e43e868039ae7feb573ff75  $RUNNER_TEMP/jadx.jar" | sha256sum -c -
+      - name: Inspect WorldBox Android classes with REA
+        env:
+          WORLDBOX_REA_PROBE: '1'
+        run: |
+          export REA_JADX_MCP_JAR="$RUNNER_TEMP/jadx.jar"
+          export WORLDBOX_REA_ENTRY="$RUNNER_TEMP/rea/node_modules/rea-agents/scripts/rea.mjs"
+          python .github/scripts/inspect_worldbox.py

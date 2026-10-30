@@ -3,6 +3,7 @@
 import hashlib
 import collections
 import math
+import json
 import html
 import os
 from pathlib import Path
@@ -75,6 +76,40 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_REA_PROBE') == '1':
+            rea = os.environ['WORLDBOX_REA_ENTRY']
+            base = Path(td) / 'base.apk'
+            def invoke_rea(*args):
+                result = subprocess.run(['node', rea, *map(str, args), '--json'], capture_output=True, text=True, timeout=360)
+                if result.returncode:
+                    message = (result.stderr or result.stdout)[-1200:]
+                    message = message.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+                    print('::warning title=REA analysis::' + message)
+                    return None
+                try:
+                    return json.loads(result.stdout)
+                except json.JSONDecodeError:
+                    raise RuntimeError('REA returned non-JSON output')
+            def strings(value):
+                if isinstance(value, str):
+                    yield value
+                elif isinstance(value, list):
+                    for item in value:
+                        yield from strings(item)
+                elif isinstance(value, dict):
+                    for item in value.values():
+                        yield from strings(item)
+            success = 0
+            for term in ('Billing', 'Purchasing', 'UnityPlayer'):
+                data = invoke_rea('search-android-classes', base, term)
+                if data is None:
+                    continue
+                success += 1
+                found = sorted({value for value in strings(data) if term.lower() in value.lower() and len(value) < 250})
+                print('::notice title=REA Android class search::' + term + ': ' + ('; '.join(found[:15]) or 'no matching class names reported'))
+            if not success:
+                raise RuntimeError('All REA Android class searches failed.')
+            sys.exit(0)
         if os.environ.get('WORLDBOX_RUNTIME_PROBE') == '1':
             import time
             def adb(*args, check=True):
