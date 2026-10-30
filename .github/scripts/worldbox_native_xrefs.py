@@ -6,6 +6,7 @@ file paths, process memory or game files are exported. All references are clues,
 not proof of executed control flow or metadata use.
 """
 import argparse
+import copy
 import json
 from pathlib import Path
 import struct
@@ -351,6 +352,39 @@ def inspect(path, target=TARGET):
             'allocatedDataBytes': data_total, 'allocatedDataScanned': data_scanned, 'dataTruncated': data_scanned < data_total,
             'limitations': 'Linear decoding may identify data or unreachable code; address pairs and pointer values are not proof of execution. Indirect targets, packed relocations, runtime-generated references and noncanonical instruction sequences may be missed.',
         }
+
+
+def annotation_payloads(report):
+    """Produce bounded JSON annotation payloads; the complete report remains in the job log."""
+    tail = report['directTailBranches']
+    source = tail.get('argumentSourceCallees', {})
+    callers = source.get('callerExamples', [])
+    summary = {key: value for key, value in report.items() if key != 'directTailBranches'}
+    summary['directTailBranches'] = {key: tail.get(key) for key in ('count', 'sampleSites', 'unwindStatus')}
+    summary['argumentSources'] = {'uniqueTargets': source.get('uniqueTargets', 0),
+                                  'sourceExamples': copy.deepcopy(source.get('examples', [])[:2]),
+                                  'callerExamplesTotal': len(callers),
+                                  'callerExamplesEmitted': min(len(callers), 6)}
+    # Cap example arrays and nested origins for GitHub's annotation size limit.
+    for example in summary['argumentSources']['sourceExamples']:
+        example['returns'] = example.get('returns', [])[:2]
+        example['tailTransfers'] = example.get('tailTransfers', [])[:2]
+        for item in example['returns']:
+            item['callOrigins'] = item.get('callOrigins', [])[:2]
+    details = []
+    for original in callers[:6]:
+        item = {key: original[key] for key in ('site', 'function', 'status', 'workLimitReached') if key in original}
+        if 'call' in original:
+            call = original['call']
+            arguments = call.get('arguments', {})
+            origins = call.get('callOrigins', [])
+            item['call'] = {'site': call['site'], 'reachedInModel': call['reachedInModel'],
+                            'arguments': {key: values[:4] for key, values in arguments.items()},
+                            'callOrigins': origins[:4],
+                            'detailsTruncated': (call.get('callOriginsTruncated', False) or len(origins) > 4 or
+                                                 any(len(values) > 4 for values in arguments.values()))}
+        details.append(item)
+    return summary, details
 
 
 def main():

@@ -89,13 +89,21 @@ try:
             data = json.loads(output.stdout)
             if data.get('kind') != 'arm64-static-triage':
                 raise RuntimeError('Unexpected ARM64 static analysis result.')
-            print('::warning title=WorldBox ARM64 static triage::' + json.dumps(data, separators=(',', ':')))
+            print('ARM64 full aggregate triage: ' + json.dumps(data, separators=(',', ':')))
+            triage_summary = dict(data)
+            triage_summary['directPltCalls'] = {name: {'count': info['count']} for name, info in data['directPltCalls'].items()}
+            print('::warning title=WorldBox ARM64 static triage::' + json.dumps(triage_summary, separators=(',', ':')))
             flow_output = subprocess.run([sys.executable, '.github/scripts/worldbox_native_flow.py', str(native)],
                                          capture_output=True, text=True, timeout=360, check=True)
             flow = json.loads(flow_output.stdout)
             if flow.get('kind') != 'arm64-static-flow':
                 raise RuntimeError('Unexpected ARM64 file-flow analysis result.')
-            print('::warning title=WorldBox ARM64 file flow::' + json.dumps(flow, separators=(',', ':')))
+            print('ARM64 full aggregate file flow: ' + json.dumps(flow, separators=(',', ':')))
+            flow_summary = dict(flow)
+            callers = flow.get('directWrapperCallers', {})
+            flow_summary['directWrapperCallers'] = {'counts': callers.get('counts', {}),
+                                                    'executableScanTruncated': callers.get('executableScanTruncated')}
+            print('::warning title=WorldBox ARM64 file flow::' + json.dumps(flow_summary, separators=(',', ':')))
             xref_output = subprocess.run([sys.executable, '.github/scripts/worldbox_native_xrefs.py', str(native)],
                                          capture_output=True, text=True, timeout=360)
             if xref_output.returncode:
@@ -103,7 +111,14 @@ try:
             xref = json.loads(xref_output.stdout)
             if xref.get('kind') != 'arm64-static-xrefs':
                 raise RuntimeError('Unexpected ARM64 cross-reference result.')
-            print('::warning title=WorldBox ARM64 indirect references::' + json.dumps(xref, separators=(',', ':')))
+            # GitHub truncates each annotation at 4096 characters. Keep the full
+            # aggregate-only report in the job log and emit bounded annotations.
+            from worldbox_native_xrefs import annotation_payloads
+            print('ARM64 full aggregate xrefs: ' + json.dumps(xref, separators=(',', ':')))
+            summary, details = annotation_payloads(xref)
+            print('::warning title=WorldBox ARM64 indirect references::' + json.dumps(summary, separators=(',', ':')))
+            for detail in details:
+                print('::warning title=WorldBox ARM64 source input::' + json.dumps(detail, separators=(',', ':')))
             sys.exit(0)
         if os.environ.get('WORLDBOX_REA_PROBE') == '1':
             rea = os.environ['WORLDBOX_REA_ENTRY']

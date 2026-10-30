@@ -131,6 +131,22 @@ class NativeXrefsTest(unittest.TestCase):
         self.assertEqual(ret['callOrigins'][0]['recognizedApi'], 'other-import')
         self.assertNotIn('evil', str(ret))
 
+    def test_bounded_annotations_keep_caller_details(self):
+        data = fixture(eh_frame=True, origin_helper=True)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = refs.inspect(path, target=0x2000)
+        import copy
+        original = copy.deepcopy(report)
+        summary, details = refs.annotation_payloads(report)
+        self.assertEqual(report, original)
+        self.assertEqual(summary['argumentSources']['callerExamplesEmitted'], 1)
+        self.assertEqual(details[0]['call']['arguments']['x0'], ['entry-argument-0'])
+        self.assertLess(len(__import__('json').dumps(summary)), 4096)
+        self.assertLess(len(__import__('json').dumps(details[0])), 4096)
+        self.assertIn('callerExamples', report['directTailBranches']['argumentSourceCallees'])
+
     def test_rejects_other_architecture(self):
         data = fixture()
         data[18:20] = struct.pack('<H', 62)
