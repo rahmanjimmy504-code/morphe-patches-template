@@ -219,6 +219,15 @@ try:
             print('::notice title=WorldBox emulator::Game process remained running after 60 seconds (PID ' + pid + ')')
             if os.environ.get('WORLDBOX_METADATA_SCAN') == '1':
                 game_pid = pid.split()[0]
+                def restart_game(reason):
+                    print('::notice title=WorldBox emulator::Restarting game before ' + reason, flush=True)
+                    adb('shell', 'am', 'force-stop', 'com.mkarpenko.worldbox', check=False)
+                    adb('shell', 'monkey', '-p', 'com.mkarpenko.worldbox', '-c', 'android.intent.category.LAUNCHER', '1')
+                    time.sleep(60)
+                    refreshed = adb('shell', 'pidof', 'com.mkarpenko.worldbox', check=False)
+                    if not refreshed:
+                        raise RuntimeError('Game did not remain running after restart for ' + reason)
+                    return refreshed.split()[0]
                 enforcement = adb('shell', 'getenforce', check=False)
                 print('::notice title=Emulator security::SELinux before probe: ' + enforcement)
                 smoke_pid = adb('shell', 'sleep 180 >/dev/null 2>&1 & echo $!', check=False).strip()
@@ -234,8 +243,11 @@ try:
                     after = adb('shell', 'getenforce', check=False)
                     print('::notice title=Emulator security::SELinux after temporary CI-only change: ' + after)
                     if after.lower() == 'permissive':
+                        game_pid = restart_game('permissive Frida retry')
                         probe = subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py', game_pid], timeout=240)
                 if probe.returncode:
+                    # A failed Frida attach may have killed or altered the old target.
+                    game_pid = restart_game('read-only /proc fallback')
                     helper = os.environ.get('WORLDBOX_PROC_SCANNER')
                     if not helper or not Path(helper).is_file():
                         raise RuntimeError('Frida failed and the /proc fallback binary is missing.')

@@ -65,7 +65,7 @@ jobs:
           arch: x86_64
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: WORLDBOX_RUNTIME_PROBE=1 WORLDBOX_METADATA_SCAN=1 WORLDBOX_FRIDA_SERVER=$RUNNER_TEMP/frida-server WORLDBOX_PROC_SCANNER=$RUNNER_TEMP/worldbox-proc-scan python .github/scripts/inspect_worldbox.py
+          script: PYTHONUNBUFFERED=1 WORLDBOX_RUNTIME_PROBE=1 WORLDBOX_METADATA_SCAN=1 WORLDBOX_FRIDA_SERVER=$RUNNER_TEMP/frida-server WORLDBOX_PROC_SCANNER=$RUNNER_TEMP/worldbox-proc-scan python .github/scripts/inspect_worldbox.py
   rea-android-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 15
