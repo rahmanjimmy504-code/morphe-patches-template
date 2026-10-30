@@ -288,15 +288,35 @@ def inspect(path, target=TARGET):
             # Follow only unique direct call origins associated with x0 at the
             # sampled mapping-wrapper calls. Never assume a matching name or path.
             origin_targets = set()
+            origin_sites = set()
             for info in tail_callers.values():
                 for example in info.get('argumentExamples', []):
                     call = example.get('call', {})
                     x0_sites = {item.rsplit('@', 1)[1] for item in call.get('arguments', {}).get('x0', []) if '@' in item}
                     for origin in call.get('callOrigins', []):
                         if origin['site'] in x0_sites and origin.get('kind') == 'direct' and origin.get('target'):
-                            origin_targets.add(int(origin['target'], 16))
-            source_callees = {'uniqueTargets': len(origin_targets), 'sampleLimit': 4, 'examples': []}
+                            destination = int(origin['target'], 16)
+                            origin_targets.add(destination)
+                            origin_sites.add((int(origin['site'], 16), destination))
+            source_callees = {'uniqueTargets': len(origin_targets), 'sampleLimit': 4, 'examples': [],
+                              'callerSampleLimit': 8, 'callerExamples': []}
             imports = safe_import_plt(elf)
+            for site, destination in sorted(origin_sites)[:8]:
+                frame = flow.frame_for_site(frames, starts, site)
+                if not frame:
+                    source_callees['callerExamples'].append({'site': hex(site), 'status': 'no-unwind-range'})
+                    continue
+                lo, hi = frame
+                sec = next((part for part in executable if part['sh_addr'] <= lo and hi <= part['sh_addr'] + part['sh_size']), None)
+                if not sec or hi - lo > flow.MAX_FUNCTION or lo % 4:
+                    source_callees['callerExamples'].append({'site': hex(site), 'status': 'unusable-or-too-large-range'})
+                    continue
+                f.seek(sec['sh_offset'] + lo - sec['sh_addr'])
+                plt = dict(imports); plt[destination] = 'source-helper'
+                result = flow.analyze_window(f.read(hi - lo), lo, plt, {site: 'source-helper'}, classify)
+                source_callees['callerExamples'].append({'site': hex(site), 'function': hex(lo),
+                                                         'workLimitReached': result['workLimitReached'],
+                                                         'call': result['calls'][0]})
             for destination in sorted(origin_targets)[:4]:
                 frame = flow.frame_for_site(frames, starts, destination)
                 if not frame:
@@ -315,7 +335,8 @@ def inspect(path, target=TARGET):
                                                    'tailTransfers': result['tailTransfers'],
                                                    'tailTransfersTruncated': result['tailTransfersTruncated']})
         else:
-            source_callees = {'uniqueTargets': 0, 'sampleLimit': 4, 'examples': []}
+            source_callees = {'uniqueTargets': 0, 'sampleLimit': 4, 'examples': [],
+                              'callerSampleLimit': 8, 'callerExamples': []}
         return {
             'kind': 'arm64-static-xrefs', 'target': hex(target),
             'symbolMatches': target_symbol_count,

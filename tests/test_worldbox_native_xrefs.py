@@ -104,6 +104,8 @@ class NativeXrefsTest(unittest.TestCase):
         self.assertEqual(source['uniqueTargets'], 1)
         self.assertEqual(source['examples'][0]['target'], '0x3080')
         self.assertEqual(source['examples'][0]['returns'][0]['x0'], ['entry-argument-1'])
+        self.assertEqual(source['callerExamples'][0]['site'], '0x3000')
+        self.assertEqual(source['callerExamples'][0]['call']['arguments']['x0'], ['entry-argument-0'])
 
     def test_mapping_source_callee_resolves_safe_import(self):
         data = fixture(eh_frame=True, origin_helper=True, helper_calls_import=True)

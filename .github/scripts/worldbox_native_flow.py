@@ -255,7 +255,7 @@ def analyze_window(data, start, plt, targets, classify, capture_returns=False):
                     'mmap': (0, 1, 2, 3, 4, 5), 'munmap': (0, 1),
                     'wrapper-open': (0, 1, 2, 3, 4, 5), 'wrapper-mmap': (0, 1, 2, 3, 4, 5),
                     'wrapper-mapparent': (0, 1, 2, 3, 4, 5), 'tail-mapparent': (0, 1, 2, 3, 4, 5),
-                    'tail-parent-caller': (0, 1, 2, 3, 4, 5)}.get(expected, ())
+                    'tail-parent-caller': (0, 1, 2, 3, 4, 5), 'source-helper': (0, 1, 2, 3, 4, 5)}.get(expected, ())
         origins = set()
         if observed:
             for index in arg_regs:
