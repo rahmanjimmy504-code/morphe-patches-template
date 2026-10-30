@@ -71,6 +71,10 @@ try:
         if not native or not metadata:
             raise RuntimeError('Missing ARM64 native library or Unity metadata.')
         print('::notice title=WorldBox SHA-256::ARM64 library ' + hashlib.file_digest(native.open('rb'), 'sha256').hexdigest())
+        header = metadata.read_bytes()
+        magic = b'\xaf\x1b\xb1\xfa'
+        print('::notice title=WorldBox metadata::Header ' + header[:32].hex() + ' magic offset ' + str(header.find(magic)))
+
         dumper = Path(td) / 'dumper'
         dumper.mkdir()
         release = 'https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net7-v6.7.46.zip'
