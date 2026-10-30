@@ -7,7 +7,9 @@ on:
       - .github/scripts/inspect_worldbox.py
       - .github/scripts/worldbox_runtime_scan.py
       - .github/scripts/worldbox_native_scan.py
+      - .github/scripts/worldbox_native_flow.py
       - tests/test_worldbox_native.py
+      - tests/test_worldbox_native_flow.py
       - docs/worldbox/scan-metadata.js
       - tests/worldbox-metadata-scanner.test.cjs
       - tests/test_worldbox_triage.py
@@ -46,7 +48,9 @@ jobs:
       - name: Install pinned analysis libraries
         run: python -m pip install requests 'pyelftools==0.32' 'capstone==5.0.6'
       - name: Test synthetic ARM64 ELF fixtures
-        run: python tests/test_worldbox_native.py
+        run: |
+          python tests/test_worldbox_native.py
+          python tests/test_worldbox_native_flow.py
       - name: Inspect original ARM64 library without executing it
         env:
           WORLDBOX_NATIVE_PROBE: '1'

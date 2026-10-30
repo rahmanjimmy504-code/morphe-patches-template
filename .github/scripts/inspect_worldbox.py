@@ -90,6 +90,12 @@ try:
             if data.get('kind') != 'arm64-static-triage':
                 raise RuntimeError('Unexpected ARM64 static analysis result.')
             print('::warning title=WorldBox ARM64 static triage::' + json.dumps(data, separators=(',', ':')))
+            flow_output = subprocess.run([sys.executable, '.github/scripts/worldbox_native_flow.py', str(native)],
+                                         capture_output=True, text=True, timeout=360, check=True)
+            flow = json.loads(flow_output.stdout)
+            if flow.get('kind') != 'arm64-static-flow':
+                raise RuntimeError('Unexpected ARM64 file-flow analysis result.')
+            print('::warning title=WorldBox ARM64 file flow::' + json.dumps(flow, separators=(',', ':')))
             sys.exit(0)
         if os.environ.get('WORLDBOX_REA_PROBE') == '1':
             rea = os.environ['WORLDBOX_REA_ENTRY']

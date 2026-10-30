@@ -15,7 +15,7 @@ def branch(pc, target):
     return 0x94000000 | (((target - pc) // 4) & 0x03ffffff)
 
 
-def fixture(broken_stub=False, via_helper=False):
+def fixture(broken_stub=False, via_helper=False, eh_frame=False):
     """Construct a minimal AArch64 ELF with an imported open() PLT and init array."""
     names = ['', '.shstrtab', '.dynstr', '.dynsym', '.rela.plt', '.rela.dyn', '.plt', '.text', '.init_array']
     shstr = b'\0'
@@ -42,6 +42,17 @@ def fixture(broken_stub=False, via_helper=False):
     links = [0, 0, 0, 2, 3, 3, 0, 0, 0]
     infos = [0, 0, 0, 1, 6, 0, 0, 0, 0]
     entsizes = [0, 0, 0, 24, 24, 24, 0, 0, 8]
+    if eh_frame:
+        name_offsets.append(len(shstr))
+        shstr += b'.eh_frame\0'
+        blobs[1] = shstr
+        names.append('.eh_frame')
+        cie_body = bytes(4) + b'\x01zR\x00\x01\x78\x1e\x01\x00\x0c\x1f\x00'
+        cie = struct.pack('<I', len(cie_body)) + cie_body
+        fde_body = struct.pack('<IQQ', len(cie) + 4, 0x3000, len(text)) + bytes(4)
+        blobs.append(cie + struct.pack('<I', len(fde_body)) + fde_body + bytes(4))
+        types.append(1); flags.append(2); addrs.append(0x7000)
+        links.append(0); infos.append(0); entsizes.append(0)
     data = bytearray(64)
     sections = [bytes(64)]
     for i in range(1, len(names)):
