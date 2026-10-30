@@ -207,7 +207,8 @@ def analyze_window(data, start, plt, targets, classify):
         observed = observations.get(pc)
         arg_regs = {'open': (0, 1), 'read': (0, 1, 2), 'fstat': (0, 1),
                     'mmap': (0, 1, 2, 3, 4, 5), 'munmap': (0, 1),
-                    'wrapper-open': (0, 1, 2, 3, 4, 5), 'wrapper-mmap': (0, 1, 2, 3, 4, 5)}.get(expected, ())
+                    'wrapper-open': (0, 1, 2, 3, 4, 5), 'wrapper-mmap': (0, 1, 2, 3, 4, 5),
+                    'wrapper-mapparent': (0, 1, 2, 3, 4, 5)}.get(expected, ())
         results.append({'site': hex(pc), 'api': expected, 'reachedInModel': observed is not None,
                         'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {}})
     return {'decodedInstructions': len(code), 'visitedInstructions': len(seen), 'branchVisits': branch_count,
@@ -317,6 +318,28 @@ def inspect(path, sites=SITES):
                         refs[target]['sampleSites'].append(pc)
         sorted_frames = sorted(frames)
         starts = [item[0] for item in sorted_frames]
+        # If sampled callers of both wrappers share an unwind range, check a
+        # bounded set of direct callers of that shared parent as a second hop.
+        frame_sets = []
+        for info in refs.values():
+            frame_sets.append({frame for site in info['sampleSites']
+                               if (frame := frame_for_site(sorted_frames, starts, site))})
+        shared = set.intersection(*frame_sets) if len(frame_sets) >= 2 else set()
+        parent_targets = {lo: 'wrapper-mapparent' for lo, _hi in sorted(shared)[:4]}
+        if parent_targets:
+            for target in parent_targets:
+                refs[target] = {'count': 0, 'sampleSites': []}
+            for sec in executable:
+                if sec['sh_size'] > triage.MAX_EXEC:
+                    caller_scan_truncated = True
+                    continue
+                for pc, word in triage.instructions(sec.data(), sec['sh_addr']):
+                    target = triage.direct_branch(word, pc)
+                    if target in parent_targets:
+                        refs[target]['count'] += 1
+                        if len(refs[target]['sampleSites']) < 4:
+                            refs[target]['sampleSites'].append(pc)
+            wrapper_targets.update(parent_targets)
         caller_results = []
         caller_plt = dict(plt)
         caller_plt.update(wrapper_targets)
