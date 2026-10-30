@@ -133,7 +133,7 @@ def describe(values, classify):
     return sorted(result)
 
 
-def analyze_window(data, start, plt, targets, classify):
+def analyze_window(data, start, plt, targets, classify, capture_returns=False):
     """Follow direct intra-window CFG edges with a small may-value analysis."""
     decoder = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
     decoder.detail = True
@@ -144,6 +144,8 @@ def analyze_window(data, start, plt, targets, classify):
     queue = deque([start])
     seen = set()
     observations = {}
+    returns = {}
+    transfers = {}
     call_sites = {}
     branch_count = 0
     steps = 0
@@ -217,11 +219,19 @@ def analyze_window(data, start, plt, targets, classify):
                 for i in range(6):
                     key = f'x{i}'
                     current[key] = joined(current[key], read_reg(state, key))
+            if capture_returns and branch_target is not None and branch_target not in code:
+                old = transfers.get(pc, (branch_target, frozenset()))
+                transfers[pc] = (branch_target, joined(old[1], read_reg(state, 'x0')))
             next_pcs = [branch_target] if branch_target is not None else []
         elif mnemonic.startswith('b.') or mnemonic in ('cbz', 'cbnz', 'tbz', 'tbnz'):
             branch_count += 1
             if ops and ops[-1].type == ARM64_OP_IMM: next_pcs.append(ops[-1].imm)
         elif mnemonic in ('ret', 'br', 'eret'):
+            if mnemonic == 'ret' and capture_returns:
+                returns[pc] = joined(returns.get(pc, frozenset()), read_reg(state, 'x0'))
+            elif mnemonic == 'br' and capture_returns:
+                old = transfers.get(pc, (None, frozenset()))
+                transfers[pc] = (None, joined(old[1], read_reg(state, 'x0')))
             next_pcs = []
         # Any written register whose instruction semantics are not modeled is
         # invalidated, rather than silently retaining a misleading old value.
@@ -255,8 +265,19 @@ def analyze_window(data, start, plt, targets, classify):
                         'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {},
                         'callOrigins': [call_sites[site] for site in sorted(origins) if site in call_sites][:12],
                         'callOriginsTruncated': len(origins) > 12})
+    return_details = []
+    for pc, values in sorted(returns.items())[:12]:
+        origins = sorted(value for kind, value in values if kind in ('call', 'call-derived', 'memory-call', 'fd'))
+        return_details.append({'site': hex(pc), 'x0': describe(values, classify),
+                               'callOrigins': [call_sites[site] for site in origins if site in call_sites][:12],
+                               'callOriginsTruncated': len(origins) > 12})
+    tail_details = [{'site': hex(pc), 'target': hex(target) if target is not None else None,
+                     'x0': describe(values, classify)}
+                    for pc, (target, values) in sorted(transfers.items())[:12]]
     return {'decodedInstructions': len(code), 'visitedInstructions': len(seen), 'branchVisits': branch_count,
-            'workLimitReached': bool(queue), 'calls': results}
+            'workLimitReached': bool(queue), 'calls': results, 'returns': return_details,
+            'returnsTruncated': len(returns) > 12, 'tailTransfers': tail_details,
+            'tailTransfersTruncated': len(transfers) > 12}
 
 
 def frame_for_site(frames, starts, site):

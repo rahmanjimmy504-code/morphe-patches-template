@@ -15,7 +15,7 @@ def branch(pc, target):
     return 0x94000000 | (((target - pc) // 4) & 0x03ffffff)
 
 
-def fixture(broken_stub=False, via_helper=False, eh_frame=False, split_frames=False):
+def fixture(broken_stub=False, via_helper=False, eh_frame=False, split_frames=False, origin_helper=False):
     """Construct a minimal AArch64 ELF with an imported open() PLT and init array."""
     names = ['', '.shstrtab', '.dynstr', '.dynsym', '.rela.plt', '.rela.dyn', '.plt', '.text', '.init_array']
     shstr = b'\0'
@@ -31,7 +31,12 @@ def fixture(broken_stub=False, via_helper=False, eh_frame=False, split_frames=Fa
     adrp = 0x90000000 | (3 << 29) | 16
     ldr = 0xf9400000 | (2 << 10) | (16 << 5) | 17
     plt = struct.pack('<12I', *([0xd503201f] * 8), adrp, ldr, 0x91004210, 0xd61f0220 if not broken_stub else 0xd65f03c0)
-    if via_helper:
+    if origin_helper:
+        b_tail = 0x14000000 | (((0x2000 - 0x3040) // 4) & 0x03ffffff)
+        text = struct.pack('<3I', branch(0x3000, 0x3080), branch(0x3004, 0x3040), 0xd65f03c0)
+        text += bytes(0x40 - len(text)) + struct.pack('<2I', b_tail, 0xd65f03c0)
+        text += bytes(0x80 - len(text)) + struct.pack('<2I', 0xaa0103e0, 0xd65f03c0)  # mov x0,x1; ret
+    elif via_helper:
         text = struct.pack('<2I', branch(0x3000, 0x3040), 0xd65f03c0) + bytes(56) + struct.pack('<2I', branch(0x3040, 0x2020), 0xd65f03c0)
     else:
         text = struct.pack('<3I', branch(0x3000, 0x2020), 0xd65f03c0, 0xd503201f)
@@ -49,11 +54,15 @@ def fixture(broken_stub=False, via_helper=False, eh_frame=False, split_frames=Fa
         names.append('.eh_frame')
         cie_body = bytes(4) + b'\x01zR\x00\x01\x78\x1e\x01\x00\x0c\x1f\x00'
         cie = struct.pack('<I', len(cie_body)) + cie_body
-        first_size = 8 if split_frames else len(text)
-        fde_body = struct.pack('<IQQ', len(cie) + 4, 0x3000, first_size) + bytes(4)
-        fdes = struct.pack('<I', len(fde_body)) + fde_body
-        if split_frames:
-            fde_body = struct.pack('<IQQ', len(cie) + len(fdes) + 4, 0x3040, 8) + bytes(4)
+        if origin_helper:
+            frame_ranges = [(0x3000, 12), (0x3040, 8), (0x3080, 8)]
+        elif split_frames:
+            frame_ranges = [(0x3000, 8), (0x3040, 8)]
+        else:
+            frame_ranges = [(0x3000, len(text))]
+        fdes = b''
+        for start, size in frame_ranges:
+            fde_body = struct.pack('<IQQ', len(cie) + len(fdes) + 4, start, size) + bytes(4)
             fdes += struct.pack('<I', len(fde_body)) + fde_body
         blobs.append(cie + fdes + bytes(4))
         types.append(1); flags.append(2); addrs.append(0x7000)

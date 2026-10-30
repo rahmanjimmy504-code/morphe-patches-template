@@ -259,12 +259,42 @@ def inspect(path, target=TARGET):
                     info['argumentExamples'].append({'site': sample['site'], 'function': hex(lo),
                                                      'workLimitReached': result['workLimitReached'],
                                                      'call': result['calls'][0]})
+            # Follow only unique direct call origins associated with x0 at the
+            # sampled mapping-wrapper calls. Never assume a matching name or path.
+            origin_targets = set()
+            for info in tail_callers.values():
+                for example in info.get('argumentExamples', []):
+                    call = example.get('call', {})
+                    x0_sites = {item.rsplit('@', 1)[1] for item in call.get('arguments', {}).get('x0', []) if '@' in item}
+                    for origin in call.get('callOrigins', []):
+                        if origin['site'] in x0_sites and origin.get('kind') == 'direct' and origin.get('target'):
+                            origin_targets.add(int(origin['target'], 16))
+            source_callees = {'uniqueTargets': len(origin_targets), 'sampleLimit': 4, 'examples': []}
+            for destination in sorted(origin_targets)[:4]:
+                frame = flow.frame_for_site(frames, starts, destination)
+                if not frame:
+                    source_callees['examples'].append({'target': hex(destination), 'status': 'no-unwind-range'})
+                    continue
+                lo, hi = frame
+                sec = next((part for part in executable if part['sh_addr'] <= lo and hi <= part['sh_addr'] + part['sh_size']), None)
+                if not sec or sec.name.startswith('.plt') or hi - destination > flow.MAX_FUNCTION or destination % 4:
+                    source_callees['examples'].append({'target': hex(destination), 'status': 'unusable-or-too-large-range'})
+                    continue
+                f.seek(sec['sh_offset'] + destination - sec['sh_addr'])
+                result = flow.analyze_window(f.read(hi - destination), destination, {}, {}, classify, capture_returns=True)
+                source_callees['examples'].append({'target': hex(destination), 'unwindStart': hex(lo),
+                                                   'workLimitReached': result['workLimitReached'],
+                                                   'returns': result['returns'], 'returnsTruncated': result['returnsTruncated'],
+                                                   'tailTransfers': result['tailTransfers'],
+                                                   'tailTransfersTruncated': result['tailTransfersTruncated']})
+        else:
+            source_callees = {'uniqueTargets': 0, 'sampleLimit': 4, 'examples': []}
         return {
             'kind': 'arm64-static-xrefs', 'target': hex(target),
             'symbolMatches': target_symbol_count,
             'directTailBranches': {'count': tail_count, 'sampleSites': tail_samples,
                                    'unwindStatus': unwind_status, 'traces': tail_traces,
-                                   'enclosingFunctionCallers': tail_callers},
+                                   'enclosingFunctionCallers': tail_callers, 'argumentSourceCallees': source_callees},
             'pcRelativeAddressPairs': {'count': pair_count, 'samples': pair_samples},
             'matchingRelocations': {'count': reloc_count, 'samples': reloc_samples,
                                     'unsupportedRelocationSections': sorted(set(unsupported_relocations))},

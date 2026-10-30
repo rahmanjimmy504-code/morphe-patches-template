@@ -75,6 +75,22 @@ class FlowTest(unittest.TestCase):
                                      {0x3004: 'open', 0x3010: 'read'}, classify)
         self.assertEqual(result['calls'][1]['arguments']['x0'], ['return-from-open@0x3004'])
 
+    def test_return_provenance_is_opt_in_and_bounded(self):
+        # bl helper; ret
+        data = words(branch(0x3000, 0x2020), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {}, {}, classify, capture_returns=True)
+        self.assertEqual(result['returns'][0]['x0'], ['x0-after-call@0x3000'])
+        self.assertEqual(result['returns'][0]['callOrigins'][0]['target'], '0x2020')
+        self.assertFalse(result['returnsTruncated'])
+        no_capture = flow.analyze_window(data, 0x3000, {}, {}, classify)
+        self.assertEqual(no_capture['returns'], [])
+
+    def test_return_analysis_reports_external_tail_transfer(self):
+        word = 0x14000000 | (((0x2000 - 0x3000) // 4) & 0x03ffffff)
+        result = flow.analyze_window(words(word), 0x3000, {}, {}, classify, capture_returns=True)
+        self.assertEqual(result['returns'], [])
+        self.assertEqual(result['tailTransfers'][0], {'site': '0x3000', 'target': '0x2000', 'x0': ['entry-argument-0']})
+
     def test_tail_branch_arguments(self):
         # b 0x2000; no return to this window.
         word = 0x14000000 | (((0x2000 - 0x3000) // 4) & 0x03ffffff)

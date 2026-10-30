@@ -94,6 +94,17 @@ class NativeXrefsTest(unittest.TestCase):
         self.assertTrue(caller['argumentExamples'][0]['call']['reachedInModel'])
         self.assertEqual(caller['argumentExamples'][0]['call']['arguments']['x0'], ['entry-argument-0'])
 
+    def test_mapping_argument_source_callee_return(self):
+        data = fixture(eh_frame=True, origin_helper=True)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = refs.inspect(path, target=0x2000)
+        source = report['directTailBranches']['argumentSourceCallees']
+        self.assertEqual(source['uniqueTargets'], 1)
+        self.assertEqual(source['examples'][0]['target'], '0x3080')
+        self.assertEqual(source['examples'][0]['returns'][0]['x0'], ['entry-argument-1'])
+
     def test_rejects_other_architecture(self):
         data = fixture()
         data[18:20] = struct.pack('<H', 62)
