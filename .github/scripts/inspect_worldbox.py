@@ -90,7 +90,7 @@ try:
                                 input='', capture_output=True, text=True, timeout=180)
         print(result.stdout[-4000:])
         if result.returncode != 0 or not (output / 'dump.cs').exists():
-            raise RuntimeError('IL2CPP dump failed: ' + result.stderr[-1000:])
+            raise RuntimeError('IL2CPP dump failed: ' + result.stdout[-1500:] + ' ' + result.stderr[-500:])
         lines = (output / 'dump.cs').read_text(errors='replace').splitlines()
         matches = [i for i, line in enumerate(lines) if re.search(r'premium|purchased|purchase|buyproduct', line, re.I)]
         print(f'::notice title=WorldBox scan::{len(matches)} premium/purchase symbol matches')
@@ -98,5 +98,7 @@ try:
             context = ' | '.join(lines[max(0, i-1):i+1]).strip().replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
             print('::notice title=WorldBox symbol::' + context[:800])
 except Exception as exc:
-    print('WorldBox inspection failed:', exc, file=sys.stderr)
+    detail = re.sub(r'https?://\S+', '[URL]', str(exc))[-2000:]
+    detail = detail.replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+    print('::error title=WorldBox inspection::' + detail)
     sys.exit(1)
