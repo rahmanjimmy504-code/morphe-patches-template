@@ -57,6 +57,18 @@ class FlowTest(unittest.TestCase):
                                      {0x3004: 'open', 0x3010: 'read'}, classify)
         self.assertEqual(result['calls'][1]['arguments']['x0'], ['return-from-open@0x3004'])
 
+    def test_unwind_overlap_selection(self):
+        frames = [(100, 500), (150, 180), (160, 220), (800, 900)]
+        starts = [lo for lo, _ in frames]
+        self.assertEqual(flow.frame_for_site(frames, starts, 170), (150, 180))
+        self.assertIsNone(flow.frame_for_site(frames, starts, 700))
+
+    def test_internal_wrapper_arguments_are_sampled(self):
+        data = words(branch(0x3000, 0x2100), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {0x2100: 'wrapper-open'},
+                                     {0x3000: 'wrapper-open'}, classify)
+        self.assertEqual(result['calls'][0]['arguments']['x1'], ['entry-argument-1'])
+
     def test_actual_elf_unwind_boundary_and_call_confirmation(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'fixture.so'

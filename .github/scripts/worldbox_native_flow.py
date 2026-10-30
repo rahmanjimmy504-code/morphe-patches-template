@@ -5,6 +5,7 @@ No game code or strings are printed. Modeled paths are static possibilities,
 not proof that instructions execute or that a particular file is accessed.
 """
 import argparse
+import bisect
 from collections import deque
 import json
 from pathlib import Path
@@ -205,11 +206,20 @@ def analyze_window(data, start, plt, targets, classify):
     for pc, expected in sorted(targets.items()):
         observed = observations.get(pc)
         arg_regs = {'open': (0, 1), 'read': (0, 1, 2), 'fstat': (0, 1),
-                    'mmap': (0, 1, 2, 3, 4, 5), 'munmap': (0, 1)}.get(expected, ())
+                    'mmap': (0, 1, 2, 3, 4, 5), 'munmap': (0, 1),
+                    'wrapper-open': (0, 1, 2, 3, 4, 5), 'wrapper-mmap': (0, 1, 2, 3, 4, 5)}.get(expected, ())
         results.append({'site': hex(pc), 'api': expected, 'reachedInModel': observed is not None,
                         'arguments': {f'x{i}': describe(observed[f'x{i}'], classify) for i in arg_regs} if observed else {}})
     return {'decodedInstructions': len(code), 'visitedInstructions': len(seen), 'branchVisits': branch_count,
             'workLimitReached': bool(queue), 'calls': results}
+
+
+def frame_for_site(frames, starts, site):
+    # Normally unwind ranges are disjoint. Check a bounded number of nearby
+    # overlapping ranges and choose the narrowest; absence is inconclusive.
+    index = bisect.bisect_right(starts, site)
+    matches = [(lo, hi) for lo, hi in frames[max(0, index - 32):index] if lo <= site < hi]
+    return min(matches, key=lambda item: item[1] - item[0]) if matches else None
 
 
 def inspect(path, sites=SITES):
@@ -287,8 +297,51 @@ def inspect(path, sites=SITES):
             result = analyze_window(data, lo, plt, wanted, classify)
             result.update({'start': hex(lo), 'size': hi - lo, 'boundarySource': 'eh-frame-fde'})
             functions.append(result)
+        # Inspect only a few direct callers of the two generic wrappers. Callers
+        # are examples, not an exhaustive interprocedural proof or call graph.
+        wrapper_targets = {}
+        for (lo, _hi, _name), wanted in grouped.items():
+            if 0x18ebdf0 in wanted: wrapper_targets[lo] = 'wrapper-open'
+            if 0x18ebf70 in wanted: wrapper_targets[lo] = 'wrapper-mmap'
+        refs = {target: {'count': 0, 'sampleSites': []} for target in wrapper_targets}
+        caller_scan_truncated = False
+        for sec in executable:
+            if sec['sh_size'] > triage.MAX_EXEC:
+                caller_scan_truncated = True
+                continue
+            for pc, word in triage.instructions(sec.data(), sec['sh_addr']):
+                target = triage.direct_branch(word, pc)
+                if target in refs:
+                    refs[target]['count'] += 1
+                    if len(refs[target]['sampleSites']) < 4:
+                        refs[target]['sampleSites'].append(pc)
+        sorted_frames = sorted(frames)
+        starts = [item[0] for item in sorted_frames]
+        caller_results = []
+        caller_plt = dict(plt)
+        caller_plt.update(wrapper_targets)
+        for target, info in refs.items():
+            for site in info['sampleSites']:
+                frame = frame_for_site(sorted_frames, starts, site)
+                if not frame:
+                    caller_results.append({'site': hex(site), 'target': wrapper_targets[target], 'status': 'no-unwind-range'})
+                    continue
+                lo, hi = frame
+                sec = next((part for part in executable if part['sh_addr'] <= lo and hi <= part['sh_addr'] + part['sh_size']), None)
+                if not sec or hi - lo > MAX_FUNCTION or lo % 4:
+                    caller_results.append({'site': hex(site), 'target': wrapper_targets[target], 'status': 'unusable-or-too-large-range'})
+                    continue
+                f.seek(sec['sh_offset'] + lo - sec['sh_addr'])
+                result = analyze_window(f.read(hi - lo), lo, caller_plt, {site: wrapper_targets[target]}, classify)
+                caller_results.append({'site': hex(site), 'target': wrapper_targets[target], 'function': hex(lo),
+                                       'workLimitReached': result['workLimitReached'], 'call': result['calls'][0]})
+        caller_refs = {wrapper_targets[target]: {'wrapper': hex(target), 'directCallCount': info['count'],
+                                                 'sampledSites': len(info['sampleSites'])}
+                       for target, info in refs.items()}
         return {'kind': 'arm64-static-flow', 'unwindStatus': status, 'unwindRanges': len(frames),
                 'matchedWatchedPltStubs': matched, 'unresolvedSites': locations, 'functions': functions,
+                'directWrapperCallers': {'counts': caller_refs, 'examples': caller_results,
+                                         'executableScanTruncated': caller_scan_truncated},
                 'limitations': 'Heuristic CFG and register tracking with unwind-derived ranges; unsupported instructions, indirect branches, aliases, external callees, dynamic data and incomplete unwind information can cause false positives or missed paths. Static possibilities are not runtime proof.'}
 
 
