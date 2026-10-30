@@ -6,6 +6,8 @@ import os
 from pathlib import Path
 import re
 import sys
+import shutil
+import subprocess
 import tempfile
 from urllib.parse import urljoin
 import zipfile
@@ -42,6 +44,8 @@ try:
         if target.stat().st_size != 190320343 or not zipfile.is_zipfile(target):
             raise RuntimeError('Downloaded file is not the expected WorldBox 0.51.4 (725) APKM.')
         print('Downloaded expected-size bundle. SHA-256:', hashlib.file_digest(target.open('rb'), 'sha256').hexdigest())
+        native = None
+        metadata = None
         with zipfile.ZipFile(target) as bundle:
             apks = [n for n in bundle.namelist() if n.endswith('.apk')]
             if not apks:
@@ -50,13 +54,49 @@ try:
             for name in apks:
                 path = Path(td) / Path(name).name
                 with bundle.open(name) as src, path.open('wb') as dst:
-                    import shutil
                     shutil.copyfileobj(src, dst)
                 with zipfile.ZipFile(path) as apk:
                     relevant = [n for n in apk.namelist() if n.endswith('libil2cpp.so') or n.endswith('global-metadata.dat')]
                     for entry in relevant:
                         info = apk.getinfo(entry)
-                        print(f'{name}: {entry} ({info.file_size} bytes)')
+                        print(f'::notice title=WorldBox file::{name}: {entry} ({info.file_size} bytes)')
+                        if entry == 'lib/arm64-v8a/libil2cpp.so':
+                            native = Path(td) / 'libil2cpp.so'
+                            with apk.open(entry) as src, native.open('wb') as dst:
+                                shutil.copyfileobj(src, dst)
+                        elif entry.endswith('global-metadata.dat'):
+                            metadata = Path(td) / 'global-metadata.dat'
+                            with apk.open(entry) as src, metadata.open('wb') as dst:
+                                shutil.copyfileobj(src, dst)
+        if not native or not metadata:
+            raise RuntimeError('Missing ARM64 native library or Unity metadata.')
+        print('::notice title=WorldBox SHA-256::ARM64 library ' + hashlib.file_digest(native.open('rb'), 'sha256').hexdigest())
+        dumper = Path(td) / 'dumper'
+        dumper.mkdir()
+        release = 'https://github.com/Perfare/Il2CppDumper/releases/download/v6.7.46/Il2CppDumper-net7-v6.7.46.zip'
+        tool = Path(td) / 'dumper.zip'
+        with session.get(release, timeout=90, stream=True) as response:
+            response.raise_for_status()
+            with tool.open('wb') as dst:
+                shutil.copyfileobj(response.raw, dst)
+        with zipfile.ZipFile(tool) as z:
+            z.extractall(dumper)
+        dlls = list(dumper.rglob('Il2CppDumper.dll'))
+        if len(dlls) != 1:
+            raise RuntimeError('Il2CppDumper executable not found.')
+        output = Path(td) / 'dump'
+        output.mkdir()
+        result = subprocess.run(['dotnet', str(dlls[0]), str(native), str(metadata), str(output)],
+                                input='', capture_output=True, text=True, timeout=180)
+        print(result.stdout[-4000:])
+        if result.returncode != 0 or not (output / 'dump.cs').exists():
+            raise RuntimeError('IL2CPP dump failed: ' + result.stderr[-1000:])
+        lines = (output / 'dump.cs').read_text(errors='replace').splitlines()
+        matches = [i for i, line in enumerate(lines) if re.search(r'premium|purchased|purchase|buyproduct', line, re.I)]
+        print(f'::notice title=WorldBox scan::{len(matches)} premium/purchase symbol matches')
+        for i in matches[:70]:
+            context = ' | '.join(lines[max(0, i-1):i+1]).strip().replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print('::notice title=WorldBox symbol::' + context[:800])
 except Exception as exc:
     print('WorldBox inspection failed:', exc, file=sys.stderr)
     sys.exit(1)
