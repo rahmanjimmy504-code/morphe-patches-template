@@ -62,8 +62,16 @@ def nearby_calls(data, base, plt):
 def string_category(data):
     """Return only a safe, predefined category, never literal strings."""
     s = data.split(b'\0', 1)[0].lower()
+    if s in (b'/dev/urandom', b'/dev/random'):
+        return 'system-random-device'
+    if s.startswith(b'/dev/'):
+        return 'other-device-path'
     if s.startswith(b'/proc/'):
         return 'proc-path'
+    if s.startswith(b'/sys/'):
+        return 'sysfs-path'
+    if s.startswith(b'/system/'):
+        return 'system-path'
     if s.startswith(b'global-metadata.dat') or s.startswith(b'metadata.dat'):
         return 'metadata-name'
     if s.startswith(b'assets/bin/data/'):

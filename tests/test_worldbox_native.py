@@ -80,6 +80,9 @@ class NativeTriageTest(unittest.TestCase):
         data = struct.pack('<3I', branch(0x1000, 0x2000), branch(0x1004, 0x2010), 0xd65f03c0)
         self.assertEqual(scan.nearby_calls(data, 0x1000, {0x2000: 'open', 0x2010: 'read'}), [(0x1000, 'open'), (0x1004, 'read')])
         self.assertEqual(scan.string_category(b'/proc/self/maps\0'), 'proc-path')
+        self.assertEqual(scan.string_category(b'/dev/urandom\0'), 'system-random-device')
+        self.assertEqual(scan.string_category(b'/dev/other\0'), 'other-device-path')
+        self.assertEqual(scan.string_category(b'/sys/class/test\0'), 'sysfs-path')
         self.assertEqual(scan.string_category(b'global-metadata.dat\0'), 'metadata-name')
         self.assertIsNone(scan.string_category(b'private-string\0'))
 
