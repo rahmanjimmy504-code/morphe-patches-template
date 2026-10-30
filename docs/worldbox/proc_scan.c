@@ -105,7 +105,7 @@ static int select_window(const Range *r, int group, uint64_t budget,
 /* The pagemap present bit is only a snapshot; it does not prove nonresident
    pages are uninteresting. Bound the pagemap work and flag all unknown bytes. */
 static int resident_ranges(int pagemap, const Range *maps, size_t count, uint64_t page_size,
-                           Range **out, size_t *out_count, Stats group[2]) {
+                           int include_swapped, Range **out, size_t *out_count, Stats group[2]) {
     Range *list = NULL;
     size_t used = 0, capacity = 0;
     uint64_t pages_seen = 0;
@@ -135,7 +135,11 @@ static int resident_ranges(int pagemap, const Range *maps, size_t count, uint64_
             if (valid > pages) valid = (size_t)pages;
             for (size_t i = 0; i < valid; i++) {
                 uint64_t page_start = pos + i * page_size;
-                if (entries[i] & (UINT64_C(1) << 63)) {
+                int present = !!(entries[i] & (UINT64_C(1) << 63));
+                int swapped = !present && !!(entries[i] & (UINT64_C(1) << 62));
+                if (!present) group[g].nonresident += page_size;
+                if (swapped) group[g].swapped += page_size;
+                if (present || (include_swapped && swapped)) {
                     group[g].eligible += page_size;
                     if (run_index != SIZE_MAX && list[run_index].end == page_start) {
                         list[run_index].end += page_size;
@@ -154,8 +158,6 @@ static int resident_ranges(int pagemap, const Range *maps, size_t count, uint64_
                         list[used++] = (Range){page_start, page_start + page_size, r->priority};
                     }
                 } else {
-                    group[g].nonresident += page_size;
-                    if (entries[i] & (UINT64_C(1) << 62)) group[g].swapped += page_size;
                     run_index = SIZE_MAX;
                 }
             }
@@ -183,10 +185,12 @@ static void print_stats(const Stats *s) {
 }
 
 int main(int argc, char **argv) {
-    if (argc != 2 && !(argc == 3 && !strcmp(argv[2], "--resident"))) {
-        fprintf(stderr, "usage: proc_scan PID [--resident]\n"); return 2;
+    if (argc != 2 && !(argc == 3 && (!strcmp(argv[2], "--resident") ||
+                                      !strcmp(argv[2], "--resident-and-swapped")))) {
+        fprintf(stderr, "usage: proc_scan PID [--resident|--resident-and-swapped]\n"); return 2;
     }
     int resident = argc == 3;
+    int include_swapped = resident && !strcmp(argv[2], "--resident-and-swapped");
     char *endptr = NULL;
     long parsed = strtol(argv[1], &endptr, 10);
     if (!endptr || *endptr || parsed <= 0 || parsed > INT32_MAX) {
@@ -257,7 +261,7 @@ int main(int argc, char **argv) {
         Range *present = NULL;
         size_t present_count = 0;
         if (resident_ranges(pagemap, ranges, count, (uint64_t)page_size,
-                            &present, &present_count, group)) goto done;
+                            include_swapped, &present, &present_count, group)) goto done;
         free(ranges); ranges = present; count = present_count;
     }
 
@@ -273,7 +277,7 @@ int main(int argc, char **argv) {
     }
     uint64_t versions = group[0].versions | group[1].versions;
     printf("{\"kind\":\"result\",\"mode\":\"%s\",\"candidates\":%" PRIu64 ",\"versions\":[",
-           resident ? "resident" : "all", group[0].candidates + group[1].candidates);
+           include_swapped ? "resident-and-swapped" : resident ? "resident" : "all", group[0].candidates + group[1].candidates);
     int first = 1;
     for (unsigned v = 16; v <= 40; v++) {
         if (versions & (UINT64_C(1) << v)) {
@@ -284,10 +288,12 @@ int main(int argc, char **argv) {
     printf(",\"later\":"); print_stats(&group[1]);
     int incomplete = group[0].attempted < group[0].eligible || group[1].attempted < group[1].eligible ||
                      group[0].unknown || group[1].unknown;
-    printf(",\"validationLimited\":%s,\"residentTruncated\":%s,\"truncated\":%s}\n",
+    uint64_t skipped_nonresident = group[0].nonresident + group[1].nonresident;
+    if (include_swapped) skipped_nonresident -= group[0].swapped + group[1].swapped;
+    printf(",\"validationLimited\":%s,\"selectedTruncated\":%s,\"truncated\":%s}\n",
            group[0].checks == MAX_CHECKS || group[1].checks == MAX_CHECKS ? "true" : "false",
-           resident && incomplete ? "true" : "false",
-           incomplete || (resident && (group[0].nonresident || group[1].nonresident)) ? "true" : "false");
+           incomplete ? "true" : "false",
+           incomplete || (resident && skipped_nonresident) ? "true" : "false");
     exitcode = 0;
 done:
     free(ranges);

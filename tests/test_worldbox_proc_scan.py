@@ -32,7 +32,7 @@ time.sleep(60)
 
 @unittest.skipUnless(sys.platform.startswith('linux') and shutil.which('cc'), 'Linux and C compiler required')
 class ProcScannerTest(unittest.TestCase):
-    def scan_fixture(self, budget=None, resident=False):
+    def scan_fixture(self, budget=None, resident=False, include_swapped=False):
         with tempfile.TemporaryDirectory() as directory:
             exe = pathlib.Path(directory) / 'proc-scan'
             cmd = ['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', '-O2']
@@ -42,7 +42,7 @@ class ProcScannerTest(unittest.TestCase):
             with subprocess.Popen([sys.executable, '-c', FIXTURE], stdout=subprocess.PIPE, text=True) as child:
                 try:
                     self.assertEqual(child.stdout.readline().strip(), 'ready')
-                    scan = subprocess.run([str(exe), str(child.pid)] + (['--resident'] if resident else []), text=True, capture_output=True, timeout=20)
+                    scan = subprocess.run([str(exe), str(child.pid)] + (['--resident-and-swapped'] if include_swapped else ['--resident'] if resident else []), text=True, capture_output=True, timeout=20)
                     if scan.returncode and 'Operation not permitted' in scan.stderr:
                         self.skipTest('ptrace not permitted in this environment')
                     self.assertEqual(scan.returncode, 0, scan.stderr)
@@ -104,11 +104,18 @@ int main(void) {
     assert(fwrite(pages, sizeof(pages), 1, f) == 1); fflush(f);
     Range map = {0, 5 * 4096, 1}, *runs = NULL;
     size_t count = 0; Stats group[2] = {{0}, {0}};
-    assert(resident_ranges(fileno(f), &map, 1, 4096, &runs, &count, group) == 0);
+    assert(resident_ranges(fileno(f), &map, 1, 4096, 0, &runs, &count, group) == 0);
     assert(count == 2 && runs[0].start == 0 && runs[0].end == 4096);
     assert(runs[1].start == 3 * 4096 && runs[1].end == 4 * 4096);
     assert(group[0].eligible == 2 * 4096 && group[0].nonresident == 2 * 4096);
     assert(group[0].swapped == 4096 && group[0].unknown == 4096);
+    free(runs); runs = NULL; count = 0;
+    Stats combined[2] = {{0}, {0}};
+    assert(resident_ranges(fileno(f), &map, 1, 4096, 1, &runs, &count, combined) == 0);
+    assert(count == 2 && runs[0].start == 0 && runs[0].end == 4096);
+    assert(runs[1].start == 2 * 4096 && runs[1].end == 4 * 4096);
+    assert(combined[0].eligible == 3 * 4096 && combined[0].nonresident == 2 * 4096);
+    assert(combined[0].swapped == 4096 && combined[0].unknown == 4096);
     free(runs); fclose(f); return 0;
 }
 """ % SOURCE
@@ -124,7 +131,7 @@ int main(void) {
         self.assertEqual(result['mode'], 'resident')
         self.assertTrue({29, 30, 31}.issubset(result['versions']))
         self.assertTrue(result['truncated'], 'nonresident pages are not scanned')
-        self.assertFalse(result['residentTruncated'])
+        self.assertFalse(result['selectedTruncated'])
         self.assertGreater(sum(result[g]['nonresidentBytes'] for g in ('priority', 'later')), 1024 * 1024)
         for group in ('priority', 'later'):
             stats = result[group]
@@ -133,10 +140,20 @@ int main(void) {
             self.assertEqual(stats['attemptedBytes'], stats['eligibleBytes'])
             self.assertLessEqual(stats['swappedBytes'], stats['nonresidentBytes'])
 
+    def test_resident_and_swapped_mode(self):
+        result = self.scan_fixture(include_swapped=True)
+        self.assertEqual(result['mode'], 'resident-and-swapped')
+        self.assertTrue({29, 30, 31}.issubset(result['versions']))
+        self.assertTrue(result['truncated'])
+        for group in ('priority', 'later'):
+            stats = result[group]
+            self.assertEqual(stats['mappedBytes'], stats['eligibleBytes'] + stats['nonresidentBytes'] - stats['swappedBytes'] + stats['pagemapUnknownBytes'])
+            self.assertEqual(stats['attemptedBytes'], stats['eligibleBytes'])
+
     def test_resident_scan_budget(self):
         budget = 65536
         result = self.scan_fixture(budget=budget, resident=True)
-        self.assertTrue(result['residentTruncated'])
+        self.assertTrue(result['selectedTruncated'])
         for group in ('priority', 'later'):
             self.assertEqual(result[group]['attemptedBytes'], budget)
 
