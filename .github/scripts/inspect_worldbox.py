@@ -254,15 +254,16 @@ try:
             if report.get('kind') != 'worldbox-bundle-inventory':
                 raise RuntimeError('Unexpected Unity bundle inventory result.')
             print('WorldBox APK bundle inventory: ' + json.dumps(report, separators=(',', ':')))
-            samples_left = 24
+            # Emit all APK summaries before any examples: Actions can cap the
+            # number of annotations from a single step.
             for apk_report in report['apks']:
                 summary = {k: v for k, v in apk_report.items() if k != 'samples'}
                 print('::warning title=WorldBox APK bundle inventory::' + json.dumps(summary, separators=(',', ':')))
+            samples_left = 4
+            for apk_report in report['apks']:
                 for row in apk_report['samples'][:samples_left]:
                     print('::warning title=WorldBox APK bundle candidate::' + json.dumps({'apk': apk_report['apk'], **row}, separators=(',', ':')))
                 samples_left = max(0, samples_left - len(apk_report['samples']))
-            if samples_left == 0:
-                print('::warning title=WorldBox bundle inventory annotation limit::See full report in job log for any remaining samples.')
             sys.exit(0)
         if os.environ.get('WORLDBOX_UNITY_SCRIPT_REFS') == '1':
             if not native or not native.is_file():
