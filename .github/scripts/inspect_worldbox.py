@@ -84,19 +84,24 @@ try:
             if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
             tool = os.environ.get('GHIDRA_HEADLESS', '')
-            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1'
+            origin_mode = os.environ.get('WORLDBOX_GHIDRA_ORIGIN_PROBE') == '1'
+            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode
             source_mode = os.environ.get('WORLDBOX_GHIDRA_SOURCE_PROBE') == '1'
             chain_mode = os.environ.get('WORLDBOX_GHIDRA_CHAIN_PROBE') == '1'
             probe_script = 'worldbox_ghidra_callees.py' if callee_mode else 'worldbox_ghidra_probe.py'
             probe_args = [sys.executable, '.github/scripts/' + probe_script,
                           '--headless', tool, '--binary', str(native)]
-            if chain_mode:
+            if origin_mode:
+                probe_args.append('--origin')
+            elif chain_mode:
                 probe_args.append('--input-chain')
             elif source_mode:
                 probe_args.append('--input-source')
             result = subprocess.run(probe_args, capture_output=True, text=True, timeout=1000)
             if result.returncode:
-                raise RuntimeError('Bounded Ghidra probe failed: ' + result.stderr[-1200:])
+                message = 'Bounded Ghidra probe failed: ' + result.stderr[-1200:]
+                print('::error title=WorldBox Ghidra probe::' + message.replace('%', '%25').replace('\n', '%0A'))
+                raise RuntimeError(message)
             report = json.loads(result.stdout)
             if callee_mode:
                 if report.get('kind') != 'ghidra-callees-probe':

@@ -20,6 +20,7 @@ import worldbox_native_xrefs as xrefs
 # These sites were independently reported by the prior bounded stack probe.
 GAME_CALLS = {0x1891c34: (0x18a8b08, 0x18facb8, 0x1902178, 0x1902260),
               0x18914e8: (0x19021d4, 0x19022b4)}
+ORIGIN_CALLS = {0x1903990: (0x3995fc4,)}
 MARKER = 'WB_GHIDRA_CALLEES:'
 
 
@@ -66,7 +67,7 @@ def categorized_imports(elf):
     return triage.plt_targets(elf, relocs)[0]
 
 
-def target_plan(path, fixture=False):
+def target_plan(path, fixture=False, origin=False):
     if fixture:
         plan = previous.targets(path, fixture=True)
         item = plan['targets'][0]
@@ -87,7 +88,7 @@ def target_plan(path, fixture=False):
                         for e in dwarf.EH_CFI_entries() if isinstance(e, FDE) and e['address_range'])
         starts = [lo for lo, _ in frames]
         selected = []
-        for entry, sites in GAME_CALLS.items():
+        for entry, sites in (ORIGIN_CALLS if origin else GAME_CALLS).items():
             frame = flow.frame_for_site(frames, starts, entry)
             if not frame or frame[0] != entry or frame[1] - frame[0] > flow.MAX_FUNCTION:
                 raise ValueError('Target is not the entry of a bounded unwind function')
@@ -105,8 +106,8 @@ def target_plan(path, fixture=False):
         return {'imageBase': min(loads), 'functions': selected}
 
 
-def run_probe(headless, binary, fixture=False):
-    plan = target_plan(binary, fixture)
+def run_probe(headless, binary, fixture=False, origin=False):
+    plan = target_plan(binary, fixture, origin)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
     with tempfile.TemporaryDirectory(prefix='worldbox-ghidra-callees-', dir=base) as td:
@@ -189,9 +190,10 @@ def main():
     parser.add_argument('--headless', required=True)
     parser.add_argument('--binary', required=True)
     parser.add_argument('--fixture', action='store_true')
+    parser.add_argument('--origin', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

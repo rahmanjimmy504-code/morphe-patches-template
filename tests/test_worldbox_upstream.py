@@ -70,6 +70,8 @@ class UpstreamTest(unittest.TestCase):
         summary = report['reports'][0]['referenceSummary']
         self.assertEqual(summary['relocations']['count'], 1)
         self.assertEqual(summary['relocations']['sampleSlots'], ['0x6000'])
+        self.assertEqual(summary['relocations']['sampleTypes'], [1027])
+        self.assertEqual(summary['alignedPointers']['samples'][0]['sectionKind'], 'relocation-section')
         self.assertNotIn('.rela.dyn', json.dumps(summary))
         payloads = upstream.multi_annotation_payloads(report)
         self.assertLess(len(payloads[0][1]), 3800)

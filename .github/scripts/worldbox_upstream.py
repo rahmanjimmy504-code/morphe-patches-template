@@ -130,9 +130,12 @@ def reference_summary(path, target):
         'pcRelativePairs': {'count': pairs['count'], 'sampleSites': pairs['samples'][:4]},
         'relocations': {'count': relocations['count'],
                         'sampleSlots': [item['slot'] for item in relocations['samples'][:4]],
+                        'sampleTypes': [item['type'] for item in relocations['samples'][:4]],
                         'unsupportedSectionCount': len(relocations['unsupportedRelocationSections'])},
         'alignedPointers': {'count': pointers['count'],
-                            'sampleLocations': [item['location'] for item in pointers['samples'][:4]]},
+                            'samples': [{'location': item['location'],
+                                         'sectionKind': 'relocation-section' if item['section'].startswith(('.rel', '.android.rel'))
+                                                        else 'other-allocated-section'} for item in pointers['samples'][:4]]},
         'executableBytesScanned': report['executableScanned'], 'execTruncated': report['execTruncated'],
         'allocatedDataBytesScanned': report['allocatedDataScanned'], 'dataTruncated': report['dataTruncated'],
         'limitation': 'Static references are candidates, not proof of runtime calls; indirect values and packed relocations may be missed.'}
