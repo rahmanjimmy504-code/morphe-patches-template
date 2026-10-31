@@ -62,6 +62,25 @@ class UpstreamTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             upstream.inspect_many('unused', [0x3000, 0x3040, 0x3080])
 
+    def test_trace_origin_verifies_branch_and_captures_return(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True, origin_helper=True))
+            result = upstream.trace_origin(path, 0x3080, 0x3000)
+            self.assertEqual(result['status'], 'modeled')
+            self.assertEqual(result['returns'][0]['x0'], ['entry-argument-1'])
+            with self.assertRaisesRegex(ValueError, 'direct branch'):
+                upstream.trace_origin(path, 0x3080, 0x3004)
+
+    def test_origin_annotation_reserves_budget(self):
+        item = {'target': '0x3000', 'examples': [{'site': hex(i * 4)} for i in range(8)]}
+        report = {'kind': 'arm64-upstream-multi', 'reports': [item, dict(item, target='0x4000')],
+                  'origin': {'target': '0x5000', 'status': 'modeled'}}
+        payloads = upstream.multi_annotation_payloads(report)
+        self.assertLessEqual(len(payloads), 10)
+        self.assertEqual(json.loads(payloads[0][1])['annotationExamplesEmitted'], 3)
+        self.assertEqual(payloads[-1][0], 'origin')
+
     def test_reference_summary_reports_relocation_without_section_names(self):
         with tempfile.TemporaryDirectory() as temp:
             path = Path(temp) / 'fixture.so'

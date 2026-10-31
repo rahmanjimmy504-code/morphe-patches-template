@@ -135,7 +135,8 @@ try:
             level3 = os.environ.get('WORLDBOX_UPSTREAM_LEVEL3') == '1'
             probe_args = [sys.executable, '.github/scripts/worldbox_upstream.py', str(native)]
             if level3:
-                probe_args += ['--target', '0x3a90ae0', '--target', '0x3a90ae4', '--references']
+                probe_args += ['--target', '0x3a90ae0', '--target', '0x3a90ae4', '--references',
+                               '--trace-origin', '0x1903990', '--caller', '0x3995fc4']
             elif level2:
                 probe_args += ['--target', '0x18fa1f4', '--target', '0x18fa520']
             result = subprocess.run(probe_args, capture_output=True, text=True, timeout=600)

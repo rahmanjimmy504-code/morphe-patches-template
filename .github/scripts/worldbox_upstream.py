@@ -141,7 +141,64 @@ def reference_summary(path, target):
         'limitation': 'Static references are candidates, not proof of runtime calls; indirect values and packed relocations may be missed.'}
 
 
-def inspect_many(path, targets, references=False):
+def trace_origin(path, target, caller):
+    """Trace one independently verified direct target's bounded unwind body."""
+    with Path(path).open('rb') as handle:
+        elf = ELFFile(handle)
+        if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
+            raise ValueError('Expected a little-endian ELF64 AArch64 library')
+        executable = [s for s in elf.iter_sections() if s['sh_flags'] & 4 and s['sh_type'] != 'SHT_NOBITS']
+        sec = next((s for s in executable if s['sh_addr'] <= caller and caller + 4 <= s['sh_addr'] + s['sh_size']), None)
+        if sec is None:
+            raise ValueError('Origin caller is not executable')
+        handle.seek(sec['sh_offset'] + caller - sec['sh_addr'])
+        raw = handle.read(4)
+        if len(raw) != 4 or scan.direct_branch(int.from_bytes(raw, 'little'), caller) != target:
+            raise ValueError('Origin caller is not a direct branch to expected target')
+        eh = elf.get_section_by_name('.eh_frame')
+        if eh is None or eh['sh_size'] > flow.MAX_EH_SIZE:
+            return {'target': hex(target), 'caller': hex(caller), 'status': 'unwind-unavailable'}
+        dwarf = elf.get_dwarf_info()
+        if not dwarf.has_EH_CFI():
+            return {'target': hex(target), 'caller': hex(caller), 'status': 'no-cfi'}
+        frames = sorted((e['initial_location'], e['initial_location'] + e['address_range'])
+                        for e in dwarf.EH_CFI_entries() if isinstance(e, FDE) and e['address_range'])
+        frame = flow.frame_for_site(frames, [lo for lo, _ in frames], target)
+        if frame is None or frame[0] != target or frame[1] - frame[0] > flow.MAX_FUNCTION:
+            return {'target': hex(target), 'caller': hex(caller), 'status': 'unusable-unwind-range'}
+        lo, hi = frame
+        sec = next((s for s in executable if s['sh_addr'] <= lo and hi <= s['sh_addr'] + s['sh_size']), None)
+        if sec is None:
+            return {'target': hex(target), 'caller': hex(caller), 'status': 'non-executable-range'}
+        constants = [s for s in elf.iter_sections() if s['sh_flags'] & 2 and not s['sh_flags'] & (1 | 4)
+                     and s['sh_type'] != 'SHT_NOBITS']
+        def classify(value):
+            section = next((s for s in constants if s['sh_addr'] <= value < s['sh_addr'] + s['sh_size']), None)
+            if section is None:
+                return 'small-constant' if 0 <= value <= 4096 else 'other-constant'
+            offset = value - section['sh_addr']
+            handle.seek(section['sh_offset'] + offset)
+            return scan.string_category(handle.read(min(128, section['sh_size'] - offset))) or 'other-constant'
+        imports = refs.safe_import_plt(elf)
+        handle.seek(sec['sh_offset'] + lo - sec['sh_addr'])
+        flow_result = flow.analyze_window(handle.read(hi - lo), lo, imports, {}, classify, capture_returns=True)
+        returns = []
+        for item in flow_result['returns'][:4]:
+            entry = dict(item)
+            entry['callOrigins'] = entry.get('callOrigins', [])[:4]
+            entry['callOriginsTruncated'] = item.get('callOriginsTruncated', False) or len(item.get('callOrigins', [])) > 4
+            returns.append(entry)
+        transfers = flow_result['tailTransfers'][:4]
+        return {'target': hex(target), 'caller': hex(caller), 'status': 'modeled', 'fdeBytes': hi - lo,
+                'decodedInstructions': flow_result['decodedInstructions'], 'visitedInstructions': flow_result['visitedInstructions'],
+                'workLimitReached': flow_result['workLimitReached'], 'returns': returns,
+                'returnsTruncated': flow_result['returnsTruncated'] or len(flow_result['returns']) > 4,
+                'tailTransfers': transfers,
+                'tailTransfersTruncated': flow_result['tailTransfersTruncated'] or len(flow_result['tailTransfers']) > 4,
+                'limitation': 'Static register origins and transfers do not establish runtime values, reachability, or entitlement behavior.'}
+
+
+def inspect_many(path, targets, references=False, origin=None):
     """Evaluate at most two distinct bounded upstream targets."""
     if (not 1 <= len(targets) <= 2 or len(set(targets)) != len(targets) or
             any(not isinstance(value, int) or value < 0 or value > 0xffffffffffffffff or value % 4
@@ -153,7 +210,10 @@ def inspect_many(path, targets, references=False):
         if references:
             row['referenceSummary'] = reference_summary(path, target)
         reports.append(row)
-    return {'kind': 'arm64-upstream-multi', 'reports': reports}
+    result = {'kind': 'arm64-upstream-multi', 'reports': reports}
+    if origin is not None:
+        result['origin'] = trace_origin(path, *origin)
+    return result
 
 
 def multi_annotation_payloads(report):
@@ -164,7 +224,7 @@ def multi_annotation_payloads(report):
     entries = []
     for item in reports:
         examples = item.get('examples', [])
-        selected = examples[:4]
+        selected = examples[:3 if report.get('origin') is not None else 4]
         summary = {key: value for key, value in item.items() if key != 'examples'}
         summary['annotationExamplesAvailable'] = len(examples)
         summary['annotationExamplesEmitted'] = len(selected)
@@ -172,6 +232,8 @@ def multi_annotation_payloads(report):
         entries.append(('summary', json.dumps(summary, separators=(',', ':'))))
         for example in selected:
             entries.append(('example', json.dumps({'target': item['target'], **example}, separators=(',', ':'))))
+    if report.get('origin') is not None:
+        entries.append(('origin', json.dumps(report['origin'], separators=(',', ':'))))
     if len(entries) > 10 or any(len(text) > 3800 for _, text in entries):
         raise ValueError('Upstream multi-target report exceeds annotation bounds')
     return entries
@@ -182,10 +244,15 @@ def main():
     parser.add_argument('elf')
     parser.add_argument('--target', action='append', type=lambda value: int(value, 0))
     parser.add_argument('--references', action='store_true')
+    parser.add_argument('--trace-origin', type=lambda value: int(value, 0))
+    parser.add_argument('--caller', type=lambda value: int(value, 0))
     args = parser.parse_args()
     if args.references and not args.target:
         parser.error('--references requires one or two explicit targets')
-    result = inspect_many(args.elf, args.target, args.references) if args.target else inspect(args.elf)
+    if (args.trace_origin is None) != (args.caller is None) or (args.trace_origin is not None and not args.target):
+        parser.error('--trace-origin and --caller require each other and explicit targets')
+    origin = (args.trace_origin, args.caller) if args.trace_origin is not None else None
+    result = inspect_many(args.elf, args.target, args.references, origin) if args.target else inspect(args.elf)
     print(json.dumps(result, separators=(',', ':')))
 
 if __name__ == '__main__':
