@@ -221,3 +221,16 @@ These tests miss encrypted, compressed, dynamically built or differently named v
 [Run 41194991458](https://github.com/rahmanjimmy504-code/morphe-patches-template/actions/runs/41194991458) checked the same base APK and ARM64 library hashes, then used UnityPy 1.25.4 to parse the two entries' serialized-object extents. Its real synthetic serialized-Unity fixture tested object, pre-data and invalid-offset handling. All 85 occurrences in `globalgamemanagers` lay within one 15,197,612-byte `ResourceManager` object (path ID 13); all 155 occurrences in `globalgamemanagers.assets` lay within `MonoScript` object extents. Counts are of occurrences, not distinct objects or necessarily meaningful fields. This mapping does not decode or identify the strings, establish that the containing objects execute, or prove any role in entitlement checks. A targeted inspection of relevant MonoScript class identifiers could be a more direct next lead than another generic native call-chain expansion.
 
 The scans omit unselected files, internal compressed contents, different terms or encodings and dynamic values. No Premium check, working patch, or release has been established.
+
+### Premium-related MonoScript identifiers: 2026-10-31
+
+[Run 41195267705](https://github.com/rahmanjimmy504-code/morphe-patches-template/actions/runs/41195267705) used UnityPy 1.25.4 on the hash-gated base APK's `globalgamemanagers.assets`. A synthetic serialized MonoScript fixture first confirmed decoding and identifier filtering. The probe selected MonoScript object extents containing an ASCII `premium` sequence, decoded those objects' metadata, and reported validated identifiers only when the script or class name contained `premium`. All six candidate objects decoded successfully, without the configured size or candidate limits being reached. They were in the empty namespace of `Assembly-CSharp`:
+
+- `WindowPremiumRestoreHelper` (path ID 77)
+- `TopPremiumButtonMover` (640)
+- `PremiumUnlockAnimation` (888)
+- `ButtonPremium` (1116)
+- `PremiumElementsChecker` (1559)
+- `PremiumWindow` (2449)
+
+These are serialized Unity script identifiers, not method bodies, IL2CPP addresses, verified functions, or proof of runtime behavior. The names suggest plausible UI or premium-related leads, but in particular `PremiumElementsChecker` is **not established** to implement the entitlement check. This narrow ASCII search can miss other scripts, alternate names or obfuscated metadata. No Premium-unlock patch, tested entitlement modification, or release resulted.
