@@ -9,3 +9,4 @@ __attribute__((visibility("default"), noinline))
 void *fixture_caller(void *value) {
     return fixture_helper(value);
 }
+/* Run requested. */
