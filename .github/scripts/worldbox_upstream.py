@@ -225,6 +225,17 @@ def trace_origin(path, target, caller, caller_kind='direct'):
                 'limitation': 'Static register origins and transfers do not establish runtime values, reachability, or entitlement behavior.'}
 
 
+def trace_origin_batch(path, origins):
+    """Trace at most three independently verified direct caller/target pairs."""
+    if not 1 <= len(origins) <= 3 or len(set(origins)) != len(origins):
+        raise ValueError('Expected one to three distinct origin pairs')
+    if any(len(pair) != 2 or any(not isinstance(v, int) or v < 0 or v > 0xffffffffffffffff or v % 4
+                                 for v in pair) for pair in origins):
+        raise ValueError('Expected aligned ARM64 origin pairs')
+    return {'kind': 'arm64-upstream-origin-batch',
+            'origins': [trace_origin(path, target, caller) for target, caller in origins]}
+
+
 def inspect_many(path, targets, references=False, origin=None):
     """Evaluate at most two distinct bounded upstream targets."""
     if (not 1 <= len(targets) <= 2 or len(set(targets)) != len(targets) or
@@ -275,12 +286,21 @@ def main():
     parser.add_argument('--caller', type=lambda value: int(value, 0))
     parser.add_argument('--caller-kind', choices=('direct', 'tail'), default='direct')
     parser.add_argument('--only-origin', action='store_true')
+    parser.add_argument('--batch-origin', action='append', metavar='TARGET:CALLER')
     args = parser.parse_args()
     if args.references and not args.target:
         parser.error('--references requires one or two explicit targets')
     if (args.trace_origin is None) != (args.caller is None):
         parser.error('--trace-origin and --caller require each other')
-    if args.only_origin:
+    if args.batch_origin:
+        if args.only_origin or args.trace_origin is not None or args.target or args.references:
+            parser.error('--batch-origin excludes other modes')
+        try:
+            origins = [tuple(int(part, 0) for part in value.split(':')) for value in args.batch_origin]
+        except ValueError:
+            parser.error('invalid --batch-origin pair')
+        result = trace_origin_batch(args.elf, origins)
+    elif args.only_origin:
         if args.trace_origin is None or args.target or args.references:
             parser.error('--only-origin requires an origin and excludes targets and references')
         result = {'kind': 'arm64-upstream-origin',

@@ -88,13 +88,16 @@ try:
             tail_mode = os.environ.get('WORLDBOX_GHIDRA_TAIL_PROBE') == '1'
             return_mode = os.environ.get('WORLDBOX_GHIDRA_RETURN_PROBE') == '1'
             input_mode = os.environ.get('WORLDBOX_GHIDRA_INPUT_PROBE') == '1'
-            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode or tail_mode or return_mode or input_mode
+            children_mode = os.environ.get('WORLDBOX_GHIDRA_CHILDREN_PROBE') == '1'
+            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode or tail_mode or return_mode or input_mode or children_mode
             source_mode = os.environ.get('WORLDBOX_GHIDRA_SOURCE_PROBE') == '1'
             chain_mode = os.environ.get('WORLDBOX_GHIDRA_CHAIN_PROBE') == '1'
             probe_script = 'worldbox_ghidra_callees.py' if callee_mode else 'worldbox_ghidra_probe.py'
             probe_args = [sys.executable, '.github/scripts/' + probe_script,
                           '--headless', tool, '--binary', str(native)]
-            if input_mode:
+            if children_mode:
+                probe_args.append('--input-children')
+            elif input_mode:
                 probe_args.append('--input-origin')
             elif return_mode:
                 probe_args.append('--return-origin')
@@ -145,8 +148,13 @@ try:
             tail_mode = os.environ.get('WORLDBOX_UPSTREAM_TAIL_PROBE') == '1'
             return_mode = os.environ.get('WORLDBOX_UPSTREAM_RETURN_PROBE') == '1'
             input_mode = os.environ.get('WORLDBOX_UPSTREAM_INPUT_PROBE') == '1'
+            children_mode = os.environ.get('WORLDBOX_UPSTREAM_CHILDREN_PROBE') == '1'
             probe_args = [sys.executable, '.github/scripts/worldbox_upstream.py', str(native)]
-            if input_mode:
+            if children_mode:
+                probe_args += ['--batch-origin', '0x18d6fa8:0x18d6f00',
+                               '--batch-origin', '0x1932b90:0x18d6f1c',
+                               '--batch-origin', '0x1937d24:0x18d6f40']
+            elif input_mode:
                 probe_args += ['--only-origin', '--trace-origin', '0x18d6ecc',
                                '--caller', '0x18d838c', '--caller-kind', 'direct']
             elif return_mode:
@@ -167,7 +175,16 @@ try:
                 raise RuntimeError(message)
             from worldbox_upstream import annotation_payloads, multi_annotation_payloads
             report = json.loads(result.stdout)
-            if tail_mode or return_mode or input_mode:
+            if children_mode:
+                origins = report.get('origins', [])
+                if report.get('kind') != 'arm64-upstream-origin-batch' or len(origins) != 3:
+                    raise RuntimeError('Unexpected upstream origin batch')
+                for origin in origins:
+                    payload = json.dumps(origin, separators=(',', ':'))
+                    if len(payload) > 3800:
+                        raise RuntimeError('Upstream origin report exceeds annotation bound')
+                    print('::warning title=WorldBox upstream origin::' + payload)
+            elif tail_mode or return_mode or input_mode:
                 if report.get('kind') != 'arm64-upstream-origin':
                     raise RuntimeError('Unexpected upstream origin report')
                 payload = json.dumps(report.get('origin', {}), separators=(',', ':'))

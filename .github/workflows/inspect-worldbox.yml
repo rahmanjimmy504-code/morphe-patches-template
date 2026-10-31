@@ -85,7 +85,7 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') }}
         run: python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --input-chain
       - name: Verify callee decompilation on the synthetic ARM64 fixture
-        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') }}
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') || contains(github.event.head_commit.message, 'worldbox-ghidra-children') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
       - name: Decompile bounded original ARM64 caller functions
         env:
@@ -94,6 +94,7 @@ jobs:
           WORLDBOX_GHIDRA_TAIL_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-tail') && '1' || '0' }}
           WORLDBOX_GHIDRA_RETURN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-return') && '1' || '0' }}
           WORLDBOX_GHIDRA_INPUT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-input') && '1' || '0' }}
+          WORLDBOX_GHIDRA_CHILDREN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-children') && '1' || '0' }}
           WORLDBOX_GHIDRA_SOURCE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-source') && '1' || '0' }}
           WORLDBOX_GHIDRA_CHAIN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') && '1' || '0' }}
           WORLDBOX_GHIDRA_PROBE: '1'
@@ -123,6 +124,7 @@ jobs:
           WORLDBOX_UPSTREAM_TAIL_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-tail]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_RETURN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-return]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_INPUT_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-input]') && '1' || '0' }}
+          WORLDBOX_UPSTREAM_CHILDREN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-children]') && '1' || '0' }}
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   native-arm64-probe:

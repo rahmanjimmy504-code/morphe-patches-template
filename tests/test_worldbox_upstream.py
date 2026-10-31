@@ -106,6 +106,20 @@ class UpstreamTest(unittest.TestCase):
         self.assertEqual(result['tailTransfers'][0]['target'], '0x2000')
         self.assertEqual(result['tailTransfers'][0]['x0'], ['entry-argument-0'])
 
+    def test_batch_origin_validates_pairs_and_recovers_each(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True, origin_helper=True))
+            result = upstream.trace_origin_batch(path, [(0x3080, 0x3000), (0x3040, 0x3004)])
+            self.assertEqual(result['kind'], 'arm64-upstream-origin-batch')
+            self.assertEqual(len(result['origins']), 2)
+            self.assertEqual(result['origins'][0]['returns'][0]['x0'], ['entry-argument-1'])
+            self.assertEqual(result['origins'][1]['tailTransfers'][0]['target'], '0x2000')
+            with self.assertRaises(ValueError):
+                upstream.trace_origin_batch(path, [(0x3080, 0x3000)] * 2)
+            with self.assertRaises(ValueError):
+                upstream.trace_origin_batch(path, [(0x3081, 0x3000)])
+
     def test_origin_annotation_reserves_budget(self):
         item = {'target': '0x3000', 'examples': [{'site': hex(i * 4)} for i in range(8)]}
         report = {'kind': 'arm64-upstream-multi', 'reports': [item, dict(item, target='0x4000')],
