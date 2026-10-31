@@ -16,6 +16,7 @@ on:
       - .github/scripts/worldbox_raw_leads.py
       - .github/scripts/worldbox_raw_context.py
       - .github/scripts/worldbox_asset_leads.py
+      - .github/scripts/worldbox_unity_object_leads.py
       - docs/worldbox/WorldboxProbe.java
       - tests/fixtures/worldbox_ghidra_fixture.c
       - tests/test_worldbox_ghidra.py
@@ -24,6 +25,7 @@ on:
       - tests/test_worldbox_raw_leads.py
       - tests/test_worldbox_raw_context.py
       - tests/test_worldbox_asset_leads.py
+      - tests/test_worldbox_unity_object_leads.py
       - tests/test_worldbox_native.py
       - tests/test_worldbox_native_flow.py
       - tests/test_worldbox_native_xrefs.py
@@ -133,6 +135,24 @@ jobs:
           WORLDBOX_UPSTREAM_RETURN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-return]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_INPUT_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-input]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_CHILDREN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-children]') && '1' || '0' }}
+          PYTHONUNBUFFERED: '1'
+        run: python .github/scripts/inspect_worldbox.py
+  unity-object-leads-probe:
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-unity-objects]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install analysis library
+        run: python -m pip install requests 'UnityPy==1.25.4'
+      - name: Test synthetic serialized Unity fixture
+        run: python tests/test_worldbox_unity_object_leads.py
+      - name: Map keyword offsets in hash-gated Unity assets
+        env:
+          WORLDBOX_UNITY_OBJECT_LEADS: '1'
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   asset-name-leads-probe:
