@@ -129,20 +129,30 @@ def run_probe(headless, binary, fixture=False):
     rows = report.get('functions', [])
     if len(rows) != len(plan['functions']):
         raise RuntimeError('Ghidra did not report every planned function')
+    with Path(binary).open('rb') as handle:
+        elf = ELFFile(handle)
+        imports = categorized_imports(elf)
+        sections = [s for s in elf.iter_sections() if s['sh_flags'] & 4 and s['sh_type'] != 'SHT_NOBITS']
+        for row in rows:
+            for call in row.get('calls', []):
+                try:
+                    pc, target = int(call['site'], 16), int(call['target'], 16)
+                    sec = next((s for s in sections if s['sh_addr'] <= pc and pc + 4 <= s['sh_addr'] + s['sh_size']), None)
+                    if sec is None:
+                        call['verifiedDirect'] = False
+                        continue
+                    handle.seek(sec['sh_offset'] + pc - sec['sh_addr'])
+                    raw = handle.read(4)
+                    call['verifiedDirect'] = len(raw) == 4 and triage.direct_branch(int.from_bytes(raw, 'little'), pc) == target
+                    if call['verifiedDirect'] and target in imports:
+                        call['importCategory'] = imports[target]
+                except (ValueError, KeyError):
+                    call['verifiedDirect'] = False
     if fixture and (not rows[0].get('decompiled') or
-                    hex(plan['expected']) not in [call.get('target') for call in rows[0].get('calls', [])]):
+                    not any(call.get('target') == hex(plan['expected']) and call.get('verifiedDirect')
+                            for call in rows[0].get('calls', []))):
         raise RuntimeError('Synthetic Ghidra callee probe failed to recover the expected direct call: ' +
                            json.dumps(rows[0], separators=(',', ':'))[:2800])
-    with Path(binary).open('rb') as handle:
-        imports = categorized_imports(ELFFile(handle))
-    for row in rows:
-        for call in row.get('calls', []):
-            try:
-                api = imports.get(int(call['target'], 16))
-            except (ValueError, KeyError):
-                api = None
-            if api:
-                call['importCategory'] = api
     return report
 
 
