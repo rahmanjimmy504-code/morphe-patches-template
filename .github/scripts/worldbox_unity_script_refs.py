@@ -55,8 +55,8 @@ def resolve(file_id, owner, externals, target_name, basename_unique):
     return 'other-file'
 
 
-def inspect_bytes(data, owner, targets=TARGETS, basename_unique=True):
-    if len(data) > MAX_FILE:
+def inspect_bytes(data, owner, targets=TARGETS, basename_unique=True, max_size=MAX_FILE):
+    if len(data) > max_size:
         raise ValueError('Serialized file exceeds size bound')
     env = UnityPy.load(data)
     files = list(env.files.values())

@@ -20,6 +20,7 @@ on:
       - .github/scripts/worldbox_unity_scripts.py
       - .github/scripts/worldbox_unity_script_refs.py
       - .github/scripts/worldbox_bundle_inventory.py
+      - .github/scripts/worldbox_guid_script_refs.py
       - docs/worldbox/WorldboxProbe.java
       - tests/fixtures/worldbox_ghidra_fixture.c
       - tests/test_worldbox_ghidra.py
@@ -32,6 +33,7 @@ on:
       - tests/test_worldbox_unity_scripts.py
       - tests/test_worldbox_unity_script_refs.py
       - tests/test_worldbox_bundle_inventory.py
+      - tests/test_worldbox_guid_script_refs.py
       - tests/test_worldbox_native.py
       - tests/test_worldbox_native_flow.py
       - tests/test_worldbox_native_xrefs.py
@@ -141,6 +143,28 @@ jobs:
           WORLDBOX_UPSTREAM_RETURN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-return]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_INPUT_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-input]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_CHILDREN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-children]') && '1' || '0' }}
+          PYTHONUNBUFFERED: '1'
+        run: python .github/scripts/inspect_worldbox.py
+  unity-extensionless-references:
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-guid-refs]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install analysis library
+        run: python -m pip install requests 'UnityPy==1.25.4'
+      - name: Test synthetic serialized pointer detection
+        run: |
+          python tests/test_worldbox_unity_scripts.py
+          python tests/test_worldbox_unity_script_refs.py
+          python tests/test_worldbox_bundle_inventory.py
+          python tests/test_worldbox_guid_script_refs.py
+      - name: Analyze hash-gated serialized files
+        env:
+          WORLDBOX_GUID_SCRIPT_REFS: '1'
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   unity-bundle-inventory:
