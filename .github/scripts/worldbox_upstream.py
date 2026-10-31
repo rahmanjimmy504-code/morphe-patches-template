@@ -119,11 +119,43 @@ def annotation_payloads(report):
     return texts
 
 
+def inspect_many(path, targets):
+    """Evaluate at most two distinct bounded upstream targets."""
+    if (not 1 <= len(targets) <= 2 or len(set(targets)) != len(targets) or
+            any(not isinstance(value, int) or value < 0 or value > 0xffffffffffffffff or value % 4
+                for value in targets)):
+        raise ValueError('Expected one or two distinct aligned ARM64 targets')
+    return {'kind': 'arm64-upstream-multi', 'reports': [inspect(path, target) for target in targets]}
+
+
+def multi_annotation_payloads(report):
+    """Emit at most ten short warnings, explicitly reporting hidden samples."""
+    reports = report.get('reports', [])
+    if report.get('kind') != 'arm64-upstream-multi' or not 1 <= len(reports) <= 2:
+        raise ValueError('Unexpected upstream multi-target report')
+    entries = []
+    for item in reports:
+        examples = item.get('examples', [])
+        selected = examples[:4]
+        summary = {key: value for key, value in item.items() if key != 'examples'}
+        summary['annotationExamplesAvailable'] = len(examples)
+        summary['annotationExamplesEmitted'] = len(selected)
+        summary['annotationExamplesTruncated'] = len(examples) > len(selected)
+        entries.append(('summary', json.dumps(summary, separators=(',', ':'))))
+        for example in selected:
+            entries.append(('example', json.dumps({'target': item['target'], **example}, separators=(',', ':'))))
+    if len(entries) > 10 or any(len(text) > 3800 for _, text in entries):
+        raise ValueError('Upstream multi-target report exceeds annotation bounds')
+    return entries
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('elf')
+    parser.add_argument('--target', action='append', type=lambda value: int(value, 0))
     args = parser.parse_args()
-    print(json.dumps(inspect(args.elf), separators=(',', ':')))
+    result = inspect_many(args.elf, args.target) if args.target else inspect(args.elf)
+    print(json.dumps(result, separators=(',', ':')))
 
 if __name__ == '__main__':
     main()

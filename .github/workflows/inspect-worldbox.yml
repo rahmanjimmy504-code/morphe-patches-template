@@ -114,6 +114,7 @@ jobs:
       - name: Inspect original ARM64 caller candidates
         env:
           WORLDBOX_UPSTREAM_PROBE: '1'
+          WORLDBOX_UPSTREAM_LEVEL2: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-level2]') && '1' || '0' }}
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   native-arm64-probe:

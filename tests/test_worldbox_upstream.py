@@ -43,6 +43,35 @@ class UpstreamTest(unittest.TestCase):
         self.assertEqual(row['x0CallOrigins'][0]['target'], '0x3080')
         self.assertIsNone(row['x0CallOrigins'][0]['recognizedApi'])
 
+    def test_two_target_analysis_and_bounded_annotations(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True, origin_helper=True))
+            report = upstream.inspect_many(path, [0x3040, 0x3080])
+        self.assertEqual([row['target'] for row in report['reports']], ['0x3040', '0x3080'])
+        self.assertEqual(report['reports'][0]['examples'][0]['x0'], ['x0-after-call@0x3000'])
+        self.assertEqual(report['reports'][1]['examples'][0]['x0'], ['entry-argument-0'])
+        payloads = upstream.multi_annotation_payloads(report)
+        self.assertEqual(len(payloads), 4)
+        self.assertTrue(all(len(text) <= 3800 for _, text in payloads))
+        self.assertEqual(json.loads(payloads[1][1])['target'], '0x3040')
+        with self.assertRaises(ValueError):
+            upstream.inspect_many('unused', [0x3040, 0x3040])
+        with self.assertRaises(ValueError):
+            upstream.inspect_many('unused', [0x3041])
+        with self.assertRaises(ValueError):
+            upstream.inspect_many('unused', [0x3000, 0x3040, 0x3080])
+
+    def test_multi_annotation_marks_hidden_samples(self):
+        item = {'target': '0x3000', 'examples': [{'site': hex(i * 4)} for i in range(8)]}
+        payloads = upstream.multi_annotation_payloads({'kind': 'arm64-upstream-multi', 'reports': [item]})
+        summary = json.loads(payloads[0][1])
+        self.assertEqual(summary['annotationExamplesAvailable'], 8)
+        self.assertEqual(summary['annotationExamplesEmitted'], 4)
+        self.assertTrue(summary['annotationExamplesTruncated'])
+        self.assertEqual(len(payloads), 5)
+        self.assertNotIn('annotationExamplesEmitted', item)
+
     def test_tail_branch_and_missing_unwind_are_explicit(self):
         data = fixture(via_helper=True)
         text = ELFFile(io.BytesIO(data)).get_section_by_name('.text')
