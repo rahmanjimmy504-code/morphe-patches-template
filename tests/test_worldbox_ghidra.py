@@ -47,6 +47,18 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertEqual(callees.import_category('_ZNSt6__ndk16vectorIcE3fooEv'), 'cpp-standard-library-other')
         self.assertEqual(callees.import_category('_ZN4Game9SecretFunEv'), 'other-import')
 
+    def test_chain_fixture_rejects_incomplete_or_wrong_paths(self):
+        row = {'argumentIndex': 1, 'argumentGraph': {'memoryAccessPath': ['input-x0', 'offset:8', 'load', 'offset:8', 'load']}}
+        self.assertTrue(probe.valid_chain_evidence(row))
+        self.assertFalse(probe.valid_chain_evidence({'argumentIndex': 0, 'argumentGraph': row['argumentGraph']}))
+        self.assertFalse(probe.valid_chain_evidence({'argumentIndex': 1, 'argumentGraph': {'memoryAccessPath': ['input-x0', 'load']}}))
+
+    @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
+    def test_selects_chain_fixture(self):
+        plan = probe.targets(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True, input_chain=True)
+        ordinary = probe.targets(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True)
+        self.assertNotEqual(plan['targets'][0]['entry'], ordinary['targets'][0]['entry'])
+
     def test_callee_parser_and_redacted_annotation(self):
         text = 'WB_GHIDRA_CALLEES:{"kind":"ghidra-callees-probe","functions":[]} (GhidraScript)\n'
         self.assertEqual(callees.parse_report(io.StringIO(text))['functions'], [])

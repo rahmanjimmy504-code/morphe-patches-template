@@ -19,6 +19,7 @@ HELPER = 0x18eb1a0
 WORLD_SITES = (0x18a8b28, 0x18fad1c, 0x19021f0, 0x19022d0, 0x1902fa4)
 STRING_HELPER = 0x18914e8
 STRING_SITES = (0x18facdc, 0x19021d4, 0x19022b4)
+CHAIN_SITES = (0x18facdc,)
 MARKER = 'WB_GHIDRA_JSON:'
 MAX_LOG_LINE = 100000
 
@@ -39,7 +40,7 @@ def marked_report(lines):
     return found[0]
 
 
-def targets(path, fixture=False, input_source=False):
+def targets(path, fixture=False, input_source=False, input_chain=False):
     with Path(path).open('rb') as f:
         elf = ELFFile(f)
         if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
@@ -58,11 +59,12 @@ def targets(path, fixture=False, input_source=False):
             table = elf.get_section_by_name('.symtab')
             if not isinstance(table, SymbolTableSection):
                 raise ValueError('Synthetic fixture is missing symbols')
-            symbols = {s.name: s['st_value'] for s in table.iter_symbols() if s.name in ('fixture_helper', 'fixture_caller')}
-            if set(symbols) != {'fixture_helper', 'fixture_caller'}:
+            expected_caller = 'fixture_chain' if input_chain else 'fixture_caller'
+            symbols = {s.name: s['st_value'] for s in table.iter_symbols() if s.name in ('fixture_helper', expected_caller)}
+            if set(symbols) != {'fixture_helper', expected_caller}:
                 raise ValueError('Synthetic fixture symbols missing')
             helper = symbols['fixture_helper']
-            caller = symbols['fixture_caller']
+            caller = symbols[expected_caller]
             cf = flow.frame_for_site(frames, starts, caller)
             if not cf or cf[0] != caller:
                 raise ValueError('Synthetic caller has no matching unwind range')
@@ -75,7 +77,10 @@ def targets(path, fixture=False, input_source=False):
             if len(sites) != 1:
                 raise ValueError('Synthetic fixture must contain exactly one direct helper call')
         else:
-            helper, sites = (STRING_HELPER, STRING_SITES) if input_source else (HELPER, WORLD_SITES)
+            if input_chain:
+                helper, sites = STRING_HELPER, CHAIN_SITES
+            else:
+                helper, sites = (STRING_HELPER, STRING_SITES) if input_source else (HELPER, WORLD_SITES)
         helper_frame = flow.frame_for_site(frames, starts, helper)
         if not helper_frame or helper_frame[0] != helper or helper_frame[1] - helper > flow.MAX_FUNCTION:
             raise ValueError('Helper unwind range missing or too large')
@@ -121,8 +126,14 @@ def valid_fixture_evidence(evidence):
     return evidence.get('stackAddressResolved') is True and {8, 16}.issubset(constant_offsets)
 
 
-def run_probe(headless, path, fixture=False, input_source=False):
-    plan = targets(path, fixture, input_source)
+def valid_chain_evidence(row):
+    expected = ['input-x0', 'offset:8', 'load', 'offset:8', 'load']
+    return row.get('argumentIndex') == 1 and row.get('argumentGraph', {}).get('memoryAccessPath') == expected
+
+
+def run_probe(headless, path, fixture=False, input_source=False, input_chain=False):
+    input_source = input_source or input_chain
+    plan = targets(path, fixture, input_source, input_chain)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
     with tempfile.TemporaryDirectory(prefix='worldbox-ghidra-', dir=base) as td:
@@ -154,7 +165,11 @@ def run_probe(headless, path, fixture=False, input_source=False):
                         not all(row.get('decompiled') and row.get('callFound') and row.get('argumentAvailable')
                                 for row in report['sites'])):
             raise RuntimeError('Ghidra synthetic fixture failed to recover the expected call and argument')
-        if fixture and input_source:
+        if fixture and input_chain:
+            row = report['sites'][0]
+            if not valid_chain_evidence(row):
+                raise RuntimeError('Ghidra fixture did not recover the expected two-load input path: ' + json.dumps(row, separators=(',', ':')))
+        elif fixture and input_source:
             row = report['sites'][0]
             graph = row.get('argumentGraph', {})
             if row.get('argumentIndex') != 1 or 'x0' not in graph.get('inputRegisters', []):
@@ -172,9 +187,10 @@ def main():
     parser.add_argument('--binary', required=True)
     parser.add_argument('--fixture', action='store_true')
     parser.add_argument('--input-source', action='store_true')
+    parser.add_argument('--input-chain', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.input_source), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.input_source, args.input_chain), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

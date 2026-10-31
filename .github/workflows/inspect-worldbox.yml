@@ -79,6 +79,9 @@ jobs:
       - name: Verify second-argument provenance on the synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-source') }}
         run: python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --input-source
+      - name: Verify input memory-chain provenance on the synthetic ARM64 fixture
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') }}
+        run: python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --input-chain
       - name: Verify callee decompilation on the synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
@@ -86,6 +89,7 @@ jobs:
         env:
           WORLDBOX_GHIDRA_CALLEE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') && '1' || '0' }}
           WORLDBOX_GHIDRA_SOURCE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-source') && '1' || '0' }}
+          WORLDBOX_GHIDRA_CHAIN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') && '1' || '0' }}
           WORLDBOX_GHIDRA_PROBE: '1'
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py

@@ -86,10 +86,13 @@ try:
             tool = os.environ.get('GHIDRA_HEADLESS', '')
             callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1'
             source_mode = os.environ.get('WORLDBOX_GHIDRA_SOURCE_PROBE') == '1'
+            chain_mode = os.environ.get('WORLDBOX_GHIDRA_CHAIN_PROBE') == '1'
             probe_script = 'worldbox_ghidra_callees.py' if callee_mode else 'worldbox_ghidra_probe.py'
             probe_args = [sys.executable, '.github/scripts/' + probe_script,
                           '--headless', tool, '--binary', str(native)]
-            if source_mode:
+            if chain_mode:
+                probe_args.append('--input-chain')
+            elif source_mode:
                 probe_args.append('--input-source')
             result = subprocess.run(probe_args, capture_output=True, text=True, timeout=1000)
             if result.returncode:

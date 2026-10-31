@@ -88,6 +88,63 @@ public class WorldboxProbe extends GhidraScript {
         return null;
     }
 
+    // Recover only a simple input-register + constant-offset + load chain.
+    // Unknown operations or conflicting phi inputs are deliberately unresolved.
+    private List<String> accessPath(Varnode node, int depth, Set<Varnode> seen) {
+        if (node == null || depth > 12 || !seen.add(node)) return null;
+        if (node.isInput() && node.isRegister()) {
+            Register register = currentProgram.getRegister(node.getAddress(), node.getSize());
+            if (register == null) return null;
+            String name = register.getName().toLowerCase(Locale.ROOT);
+            if (!name.matches("x[0-7]")) return null;
+            List<String> path = new ArrayList<>();
+            path.add("input-" + name);
+            return path;
+        }
+        PcodeOp def = node.getDef();
+        if (def == null) return null;
+        int opcode = def.getOpcode();
+        if ((opcode == PcodeOp.COPY || opcode == PcodeOp.CAST) && def.getNumInputs() == 1)
+            return accessPath(def.getInput(0), depth + 1, seen);
+        if (opcode == PcodeOp.LOAD && def.getNumInputs() >= 2) {
+            List<String> path = accessPath(def.getInput(1), depth + 1, seen);
+            if (path == null || path.size() >= 16) return null;
+            path.add("load");
+            return path;
+        }
+        if ((opcode == PcodeOp.INT_ADD || opcode == PcodeOp.PTRSUB) && def.getNumInputs() == 2 && def.getInput(1).isConstant()) {
+            List<String> path = accessPath(def.getInput(0), depth + 1, seen);
+            if (path == null) return null;
+            Varnode constant = def.getInput(1);
+            int bits = Math.min(64, constant.getSize() * 8);
+            long delta = constant.getOffset();
+            if (bits < 64) delta = (delta << (64 - bits)) >> (64 - bits);
+            if (delta < -4096 || delta > 4096 || path.size() >= 16) return null;
+            if (delta != 0) path.add("offset:" + delta);
+            return path;
+        }
+        if (opcode == PcodeOp.PTRADD && def.getNumInputs() == 3 && def.getInput(1).isConstant() && def.getInput(2).isConstant()) {
+            List<String> path = accessPath(def.getInput(0), depth + 1, seen);
+            if (path == null) return null;
+            try {
+                long delta = Math.multiplyExact(def.getInput(1).getOffset(), def.getInput(2).getOffset());
+                if (delta < -4096 || delta > 4096 || path.size() >= 16) return null;
+                if (delta != 0) path.add("offset:" + delta);
+                return path;
+            } catch (ArithmeticException ex) { return null; }
+        }
+        if (opcode == PcodeOp.MULTIEQUAL && def.getNumInputs() > 0) {
+            List<String> same = null;
+            for (int i = 0; i < def.getNumInputs(); i++) {
+                List<String> path = accessPath(def.getInput(i), depth + 1, new HashSet<>(seen));
+                if (path == null || (same != null && !same.equals(path))) return null;
+                same = path;
+            }
+            return same;
+        }
+        return null;
+    }
+
     private Map<String, Object> traceArgument(Varnode root) {
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, Integer> opCounts = new TreeMap<>();
@@ -136,6 +193,7 @@ public class WorldboxProbe extends GhidraScript {
         result.put("depthLimitReached", depthLimit);
         result.put("rootKinds", roots);
         result.put("inputRegisters", inputRegisters);
+        result.put("memoryAccessPath", accessPath(root, 0, new HashSet<>()));
         result.put("operationCounts", opCounts);
         result.put("stringCategories", stringCategories);
         return result;
