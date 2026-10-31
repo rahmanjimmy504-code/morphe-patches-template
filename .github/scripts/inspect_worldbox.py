@@ -200,6 +200,34 @@ try:
                 for payload in payloads[1:]:
                     print('::warning title=WorldBox upstream example::' + payload)
             sys.exit(0)
+        if os.environ.get('WORLDBOX_UNITY_SCRIPTS') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 libil2cpp hash mismatch; refusing analysis.')
+            base = Path(td) / 'base.apk'
+            if not base.is_file():
+                raise RuntimeError('Base APK not found in the bundle.')
+            with base.open('rb') as f:
+                base_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if base_hash != 'ab7c6bab7d2233c26a9e18426aa58dd60fa0ae0ad9be6fa0b2a6673dd8f89c3f':
+                raise RuntimeError('Base APK does not match the observed asset-scan sample.')
+            result = subprocess.run([sys.executable, '.github/scripts/worldbox_unity_scripts.py', str(base)],
+                                    capture_output=True, text=True, timeout=360, check=True)
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-premium-monoscripts':
+                raise RuntimeError('Unexpected Unity MonoScript result.')
+            print('Unity MonoScript identifier report: ' + json.dumps(report, separators=(',', ':')))
+            summary = {k: report[k] for k in ('unityVersion', 'fileBytes', 'objectCount', 'candidateCount',
+                                                'candidateLimitReached', 'oversizedCandidates', 'parseErrors')}
+            summary['matchedCount'] = len(report['matchedIdentifiers'])
+            summary['annotationsTruncated'] = len(report['matchedIdentifiers']) > 32
+            print('::warning title=WorldBox Premium script summary::' + json.dumps(summary, separators=(',', ':')))
+            for row in report['matchedIdentifiers'][:32]:
+                print('::warning title=WorldBox Premium script identifier::' + json.dumps(row, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_UNITY_OBJECT_LEADS') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
