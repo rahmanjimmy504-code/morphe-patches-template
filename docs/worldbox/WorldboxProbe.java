@@ -248,9 +248,86 @@ public class WorldboxProbe extends GhidraScript {
         return "\"" + text + "\"";
     }
 
+    private void inspectCallees(String[] args) throws Exception {
+        if (args.length < 3) throw new IllegalArgumentException("expected image base and bounded functions");
+        originalBase = Long.decode(args[1]);
+        DecompInterface decompiler = new DecompInterface();
+        boolean opened = decompiler.openProgram(currentProgram);
+        List<Map<String, Object>> functions = new ArrayList<>();
+        for (int i = 2; i < args.length; i++) {
+            String[] parts = args[i].split(":");
+            if (parts.length != 2) throw new IllegalArgumentException("bad callee format");
+            long start = Long.parseUnsignedLong(parts[0], 16);
+            long size = Long.parseUnsignedLong(parts[1], 16);
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("entry", "0x" + Long.toHexString(start));
+            row.put("fdeBytes", size);
+            row.put("decompiled", false);
+            try {
+                Function function = boundedFunction(start, size);
+                if (!opened || function == null) { row.put("status", "function-unavailable"); functions.add(row); continue; }
+                decompiler.flushCache();
+                DecompileResults result = decompiler.decompileFunction(function, 40, monitor);
+                if (!result.decompileCompleted() || result.getHighFunction() == null) {
+                    row.put("status", "decompile-failed-or-timed-out"); functions.add(row); continue;
+                }
+                row.put("decompiled", true);
+                Map<String, Integer> counts = new TreeMap<>();
+                Set<String> strings = new TreeSet<>();
+                List<Map<String, Object>> calls = new ArrayList<>();
+                List<Map<String, Object>> returns = new ArrayList<>();
+                boolean truncated = false;
+                int examined = 0, directCallCount = 0;
+                Iterator<PcodeOpAST> ops = result.getHighFunction().getPcodeOps();
+                while (ops.hasNext()) {
+                    PcodeOpAST op = ops.next();
+                    if (++examined > 8192) { truncated = true; break; }
+                    String mnemonic = op.getMnemonic();
+                    counts.put(mnemonic, counts.getOrDefault(mnemonic, 0) + 1);
+                    for (int j = 0; j < op.getNumInputs(); j++) {
+                        Varnode input = op.getInput(j);
+                        if (input != null && input.isConstant()) {
+                            String cat = safeStringCategory(input.getOffset());
+                            if (cat != null) strings.add(cat);
+                        }
+                    }
+                    if (op.getOpcode() == PcodeOp.CALL && op.getNumInputs() > 0) {
+                        directCallCount++;
+                        if (calls.size() >= 16) { truncated = true; continue; }
+                        Map<String, Object> call = new LinkedHashMap<>();
+                        long site = op.getSeqnum().getTarget().getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                        long target = op.getInput(0).getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                        call.put("site", "0x" + Long.toHexString(site));
+                        call.put("target", "0x" + Long.toHexString(target));
+                        calls.add(call);
+                    } else if (op.getOpcode() == PcodeOp.RETURN && op.getNumInputs() > 1) {
+                        if (returns.size() < 4) returns.add(traceArgument(op.getInput(1)));
+                        else truncated = true;
+                    }
+                }
+                row.put("operationCounts", counts);
+                row.put("operationsExamined", examined);
+                row.put("directCallCount", directCallCount);
+                row.put("calls", calls);
+                row.put("returnGraphs", returns);
+                row.put("stringCategories", strings);
+                row.put("truncated", truncated);
+                row.put("status", "completed");
+            } catch (Exception ex) { row.put("status", "analysis-exception-" + ex.getClass().getSimpleName()); }
+            functions.add(row);
+        }
+        decompiler.dispose();
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("kind", "ghidra-callees-probe");
+        output.put("functions", functions);
+        output.put("limitations", "No forced callee prototype; decompiler guesses, address-ordered calls and category matches do not prove runtime behavior, object semantics or metadata access.");
+        println("WB_GHIDRA_CALLEES:" + json(output));
+    }
+
     @Override
     public void run() throws Exception {
         String[] args = getScriptArgs();
+        if (args.length > 0 && args[0].equals("callees")) { inspectCallees(args); return; }
         if (args.length < 4) throw new IllegalArgumentException("expected image base, helper, size and call sites");
         originalBase = Long.decode(args[0]);
         long helperStart = Long.decode(args[1]);

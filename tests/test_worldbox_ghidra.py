@@ -9,6 +9,7 @@ import unittest
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / '.github/scripts'))
 import worldbox_ghidra_probe as probe
+import worldbox_ghidra_callees as callees
 
 class GhidraProbeTest(unittest.TestCase):
     @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
@@ -39,6 +40,24 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertEqual(decoded['stackEvidence']['writes'][0]['roots'], ['constant', 'stack'])
         self.assertEqual(len(decoded['stackEvidence']['calls']), 8)
         self.assertTrue(decoded['stackEvidence']['truncated'])
+
+    def test_callee_parser_and_redacted_annotation(self):
+        text = 'WB_GHIDRA_CALLEES:{"kind":"ghidra-callees-probe","functions":[]} (GhidraScript)\n'
+        self.assertEqual(callees.parse_report(io.StringIO(text))['functions'], [])
+        with self.assertRaises(RuntimeError):
+            callees.parse_report(io.StringIO(text * 2))
+        row = {'entry': '0x100', 'calls': [{'target': '0x200', 'site': '0x120'}] * 16,
+               'returnGraphs': [{'rootKinds': ['constant'], 'stringCategories': [],
+                                 'operationCounts': {'CALL': 1}, 'nodes': 3}]}
+        compact = callees.compact_callee(row)
+        self.assertLessEqual(len(compact), 3800)
+        self.assertEqual(json.loads(compact)['returnGraphs'][0]['operations'], ['CALL'])
+
+    @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
+    def test_selects_callee_fixture(self):
+        plan = callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True)
+        self.assertEqual(len(plan['functions']), 1)
+        self.assertNotEqual(plan['functions'][0]['entry'], plan['expected'])
 
     def test_marked_json_ignores_ghidra_log_decoration(self):
         report = probe.marked_report(io.StringIO('INFO Probe> WB_GHIDRA_JSON:{"kind":"ghidra-bounded-probe","sites":[]} (GhidraScript)\n'))

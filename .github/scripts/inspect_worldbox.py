@@ -84,12 +84,22 @@ try:
             if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
             tool = os.environ.get('GHIDRA_HEADLESS', '')
-            result = subprocess.run([sys.executable, '.github/scripts/worldbox_ghidra_probe.py',
+            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1'
+            probe_script = 'worldbox_ghidra_callees.py' if callee_mode else 'worldbox_ghidra_probe.py'
+            result = subprocess.run([sys.executable, '.github/scripts/' + probe_script,
                                      '--headless', tool, '--binary', str(native)],
                                     capture_output=True, text=True, timeout=1000)
             if result.returncode:
                 raise RuntimeError('Bounded Ghidra probe failed: ' + result.stderr[-1200:])
             report = json.loads(result.stdout)
+            if callee_mode:
+                if report.get('kind') != 'ghidra-callees-probe':
+                    raise RuntimeError('Unexpected Ghidra callee result.')
+                from worldbox_ghidra_callees import compact_callee
+                for row in report.get('functions', []):
+                    print('::warning title=WorldBox Ghidra callee::' + compact_callee(row))
+                print('::warning title=WorldBox Ghidra callee limitations::' + report.get('limitations', ''))
+                sys.exit(0)
             if report.get('kind') != 'ghidra-bounded-probe':
                 raise RuntimeError('Unexpected Ghidra probe result.')
             rows = report.get('sites', [])
