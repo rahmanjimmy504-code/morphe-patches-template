@@ -93,6 +93,14 @@ def targets(path, fixture=False):
         return {'imageBase': min(loads), 'helper': helper, 'helperSize': helper_frame[1] - helper, 'targets': selected}
 
 
+def valid_fixture_evidence(evidence):
+    # The synthetic caller explicitly writes constants to fields 1 and 2.
+    # Ghidra may model the first field as incoming storage rather than a write.
+    constant_offsets = {row.get('relativeOffset') for row in evidence.get('writes', [])
+                        if 'constant' in row.get('sourceGraph', {}).get('rootKinds', [])}
+    return evidence.get('stackAddressResolved') is True and {8, 16}.issubset(constant_offsets)
+
+
 def run_probe(headless, path, fixture=False):
     plan = targets(path, fixture)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
@@ -126,8 +134,7 @@ def run_probe(headless, path, fixture=False):
             raise RuntimeError('Ghidra synthetic fixture failed to recover the expected call and argument')
         if fixture:
             evidence = report['sites'][0].get('stackEvidence', {})
-            offsets = {row['relativeOffset'] for row in evidence.get('writes', [])}
-            if not evidence.get('stackAddressResolved') or not {0, 8}.issubset(offsets):
+            if not valid_fixture_evidence(evidence):
                 raise RuntimeError('Ghidra fixture failed to recover the expected stack-object writes: ' + json.dumps(evidence, separators=(',', ':')))
         return report
 

@@ -17,6 +17,15 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertEqual(len(result['targets']), 1)
         self.assertGreater(result['targets'][0]['size'], 0)
 
+    def test_fixture_requires_both_constant_stack_fields(self):
+        def write(offset, kind):
+            return {'relativeOffset': offset, 'sourceGraph': {'rootKinds': [kind]}}
+        evidence = {'stackAddressResolved': True, 'writes': [write(8, 'constant'), write(16, 'constant')]}
+        self.assertTrue(probe.valid_fixture_evidence(evidence))
+        self.assertFalse(probe.valid_fixture_evidence(dict(evidence, stackAddressResolved=False)))
+        self.assertFalse(probe.valid_fixture_evidence(dict(evidence, writes=[write(8, 'constant')])))
+        self.assertFalse(probe.valid_fixture_evidence(dict(evidence, writes=[write(8, 'constant'), write(16, 'register')])))
+
     def test_marked_json_ignores_ghidra_log_decoration(self):
         report = probe.marked_report(io.StringIO('INFO Probe> WB_GHIDRA_JSON:{"kind":"ghidra-bounded-probe","sites":[]} (GhidraScript)\n'))
         self.assertEqual(report['sites'], [])
