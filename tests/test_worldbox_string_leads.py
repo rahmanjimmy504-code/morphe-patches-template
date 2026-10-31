@@ -62,6 +62,16 @@ class LeadTests(unittest.TestCase):
         self.assertEqual(row['startRefs'], 1)
         self.assertEqual(row['startSamples'][0]['add'], '0x3004')
         self.assertEqual(report['categories']['metadata-name']['matches'], 0)
+        self.assertTrue(report['referenceSweepPerformed'])
+
+    def test_no_target_does_not_claim_reference_sweep(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(fixture())
+            report = leads.inspect(path)
+        self.assertFalse(report['referenceSweepPerformed'])
+        self.assertEqual(report['execBytesScanned'], 0)
+        self.assertGreater(report['execBytesRead'], 0)
 
     def test_limit_does_not_hide_count(self):
         rows = leads.matches(b'premium\0' * 40, 0)

@@ -128,7 +128,8 @@ def inspect(path):
                                 'startSamples': sites[start], 'keywordSamples': sites[keyword] if keyword != start else []})
             categories[category] = {'matches': totals[category], 'targetLimitReached': totals[category] > len(rows), 'entries': entries}
         return {'kind': 'arm64-string-leads', 'dataBytesScanned': data_scanned, 'dataBytesTotal': data_total,
-                'execBytesScanned': exec_scanned, 'execBytesTotal': exec_total, 'categories': categories}
+                'execBytesRead': exec_scanned, 'execBytesScanned': exec_scanned if targets else 0,
+                'execBytesTotal': exec_total, 'referenceSweepPerformed': bool(targets), 'categories': categories}
 
 
 if __name__ == '__main__':

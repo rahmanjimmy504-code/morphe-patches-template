@@ -213,7 +213,7 @@ try:
             if report.get('kind') != 'arm64-string-leads':
                 raise RuntimeError('Unexpected string-lead result.')
             print('ARM64 aggregate string-lead report: ' + json.dumps(report, separators=(',', ':')))
-            summary = {key: report[key] for key in ('dataBytesScanned', 'dataBytesTotal', 'execBytesScanned', 'execBytesTotal')}
+            summary = {key: report[key] for key in ('dataBytesScanned', 'dataBytesTotal', 'execBytesRead', 'execBytesScanned', 'execBytesTotal', 'referenceSweepPerformed')}
             summary['categories'] = {name: {'matches': value['matches'], 'targetLimitReached': value['targetLimitReached'],
                                             'entriesWithRefs': sum(bool(row['startRefs'] or row['keywordRefs']) for row in value['entries'])}
                                      for name, value in report['categories'].items()}
