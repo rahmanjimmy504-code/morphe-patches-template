@@ -72,6 +72,7 @@ jobs:
             NDK="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           fi
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" -O0 -fPIC -fno-inline -fno-optimize-sibling-calls -fno-omit-frame-pointer -funwind-tables -nostdlib -shared -Wl,-Bsymbolic tests/fixtures/worldbox_ghidra_fixture.c -o "$RUNNER_TEMP/worldbox-fixture.so"
+          WORLDBOX_TEST_FIXTURE="$RUNNER_TEMP/worldbox-fixture.so" python tests/test_worldbox_ghidra.py
           python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
       - name: Decompile bounded original ARM64 caller functions
         env:
