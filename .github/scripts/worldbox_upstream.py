@@ -141,8 +141,10 @@ def reference_summary(path, target):
         'limitation': 'Static references are candidates, not proof of runtime calls; indirect values and packed relocations may be missed.'}
 
 
-def trace_origin(path, target, caller):
-    """Trace one independently verified direct target's bounded unwind body."""
+def trace_origin(path, target, caller, caller_kind='direct'):
+    """Trace a verified BL or B target within its bounded unwind body."""
+    if caller_kind not in ('direct', 'tail'):
+        raise ValueError('Expected direct or tail branch kind')
     with Path(path).open('rb') as handle:
         elf = ELFFile(handle)
         if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
@@ -153,8 +155,9 @@ def trace_origin(path, target, caller):
             raise ValueError('Origin caller is not executable')
         handle.seek(sec['sh_offset'] + caller - sec['sh_addr'])
         raw = handle.read(4)
-        if len(raw) != 4 or scan.direct_branch(int.from_bytes(raw, 'little'), caller) != target:
-            raise ValueError('Origin caller is not a direct branch to expected target')
+        decode = scan.direct_branch if caller_kind == 'direct' else refs.direct_tail
+        if len(raw) != 4 or decode(int.from_bytes(raw, 'little'), caller) != target:
+            raise ValueError('Origin caller is not the expected ' + caller_kind + ' branch')
         eh = elf.get_section_by_name('.eh_frame')
         if eh is None or eh['sh_size'] > flow.MAX_EH_SIZE:
             return {'target': hex(target), 'caller': hex(caller), 'status': 'unwind-unavailable'}
@@ -189,7 +192,7 @@ def trace_origin(path, target, caller):
             entry['callOriginsTruncated'] = item.get('callOriginsTruncated', False) or len(item.get('callOrigins', [])) > 4
             returns.append(entry)
         transfers = flow_result['tailTransfers'][:4]
-        return {'target': hex(target), 'caller': hex(caller), 'status': 'modeled', 'fdeBytes': hi - lo,
+        return {'target': hex(target), 'caller': hex(caller), 'callerKind': caller_kind, 'status': 'modeled', 'fdeBytes': hi - lo,
                 'decodedInstructions': flow_result['decodedInstructions'], 'visitedInstructions': flow_result['visitedInstructions'],
                 'workLimitReached': flow_result['workLimitReached'], 'returns': returns,
                 'returnsTruncated': flow_result['returnsTruncated'] or len(flow_result['returns']) > 4,
@@ -246,13 +249,23 @@ def main():
     parser.add_argument('--references', action='store_true')
     parser.add_argument('--trace-origin', type=lambda value: int(value, 0))
     parser.add_argument('--caller', type=lambda value: int(value, 0))
+    parser.add_argument('--caller-kind', choices=('direct', 'tail'), default='direct')
+    parser.add_argument('--only-origin', action='store_true')
     args = parser.parse_args()
     if args.references and not args.target:
         parser.error('--references requires one or two explicit targets')
-    if (args.trace_origin is None) != (args.caller is None) or (args.trace_origin is not None and not args.target):
-        parser.error('--trace-origin and --caller require each other and explicit targets')
-    origin = (args.trace_origin, args.caller) if args.trace_origin is not None else None
-    result = inspect_many(args.elf, args.target, args.references, origin) if args.target else inspect(args.elf)
+    if (args.trace_origin is None) != (args.caller is None):
+        parser.error('--trace-origin and --caller require each other')
+    if args.only_origin:
+        if args.trace_origin is None or args.target or args.references:
+            parser.error('--only-origin requires an origin and excludes targets and references')
+        result = {'kind': 'arm64-upstream-origin',
+                  'origin': trace_origin(args.elf, args.trace_origin, args.caller, args.caller_kind)}
+    else:
+        if args.trace_origin is not None and not args.target:
+            parser.error('--trace-origin requires explicit targets unless --only-origin is set')
+        origin = (args.trace_origin, args.caller, args.caller_kind) if args.trace_origin is not None else None
+        result = inspect_many(args.elf, args.target, args.references, origin) if args.target else inspect(args.elf)
     print(json.dumps(result, separators=(',', ':')))
 
 if __name__ == '__main__':

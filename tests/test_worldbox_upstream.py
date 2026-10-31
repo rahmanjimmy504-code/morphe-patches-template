@@ -72,6 +72,22 @@ class UpstreamTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'direct branch'):
                 upstream.trace_origin(path, 0x3080, 0x3004)
 
+    def test_tail_caller_is_verified_separately_from_call(self):
+        data = fixture(eh_frame=True, origin_helper=True)
+        text = ELFFile(io.BytesIO(data)).get_section_by_name('.text')
+        tail = 0x14000000 | (((0x3080 - 0x3040) // 4) & 0x03ffffff)
+        struct.pack_into('<I', data, text['sh_offset'] + 0x40, tail)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'fixture.so'
+            path.write_bytes(data)
+            result = upstream.trace_origin(path, 0x3080, 0x3040, caller_kind='tail')
+            self.assertEqual(result['callerKind'], 'tail')
+            self.assertEqual(result['returns'][0]['x0'], ['entry-argument-1'])
+            with self.assertRaisesRegex(ValueError, 'direct branch'):
+                upstream.trace_origin(path, 0x3080, 0x3040)
+            with self.assertRaisesRegex(ValueError, 'tail branch'):
+                upstream.trace_origin(path, 0x3080, 0x3000, caller_kind='tail')
+
     def test_trace_origin_exposes_tail_transfer_without_inventing_return(self):
         data = fixture(eh_frame=True, origin_helper=True)
         text = ELFFile(io.BytesIO(data)).get_section_by_name('.text')

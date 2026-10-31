@@ -85,13 +85,16 @@ try:
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
             tool = os.environ.get('GHIDRA_HEADLESS', '')
             origin_mode = os.environ.get('WORLDBOX_GHIDRA_ORIGIN_PROBE') == '1'
-            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode
+            tail_mode = os.environ.get('WORLDBOX_GHIDRA_TAIL_PROBE') == '1'
+            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode or tail_mode
             source_mode = os.environ.get('WORLDBOX_GHIDRA_SOURCE_PROBE') == '1'
             chain_mode = os.environ.get('WORLDBOX_GHIDRA_CHAIN_PROBE') == '1'
             probe_script = 'worldbox_ghidra_callees.py' if callee_mode else 'worldbox_ghidra_probe.py'
             probe_args = [sys.executable, '.github/scripts/' + probe_script,
                           '--headless', tool, '--binary', str(native)]
-            if origin_mode:
+            if tail_mode:
+                probe_args.append('--tail-origin')
+            elif origin_mode:
                 probe_args.append('--origin')
             elif chain_mode:
                 probe_args.append('--input-chain')
@@ -133,8 +136,12 @@ try:
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
             level2 = os.environ.get('WORLDBOX_UPSTREAM_LEVEL2') == '1'
             level3 = os.environ.get('WORLDBOX_UPSTREAM_LEVEL3') == '1'
+            tail_mode = os.environ.get('WORLDBOX_UPSTREAM_TAIL_PROBE') == '1'
             probe_args = [sys.executable, '.github/scripts/worldbox_upstream.py', str(native)]
-            if level3:
+            if tail_mode:
+                probe_args += ['--only-origin', '--trace-origin', '0x18d834c',
+                               '--caller', '0x190399c', '--caller-kind', 'tail']
+            elif level3:
                 probe_args += ['--target', '0x3a90ae0', '--target', '0x3a90ae4', '--references',
                                '--trace-origin', '0x1903990', '--caller', '0x3995fc4']
             elif level2:
@@ -146,7 +153,14 @@ try:
                 raise RuntimeError(message)
             from worldbox_upstream import annotation_payloads, multi_annotation_payloads
             report = json.loads(result.stdout)
-            if level2 or level3:
+            if tail_mode:
+                if report.get('kind') != 'arm64-upstream-origin':
+                    raise RuntimeError('Unexpected upstream origin report')
+                payload = json.dumps(report.get('origin', {}), separators=(',', ':'))
+                if len(payload) > 3800:
+                    raise RuntimeError('Upstream origin report exceeds annotation bound')
+                print('::warning title=WorldBox upstream origin::' + payload)
+            elif level2 or level3:
                 for kind, payload in multi_annotation_payloads(report):
                     print('::warning title=WorldBox upstream ' + kind + '::' + payload)
             else:
