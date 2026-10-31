@@ -10,6 +10,8 @@ import tempfile
 
 from elftools.dwarf.callframe import FDE
 from elftools.elf.elffile import ELFFile
+from elftools.elf.relocation import RelocationSection
+from elftools.elf.sections import SymbolTableSection
 import worldbox_ghidra_probe as previous
 import worldbox_native_flow as flow
 import worldbox_native_scan as triage
@@ -35,6 +37,33 @@ def parse_report(lines):
     if len(reports) != 1:
         raise RuntimeError('Ghidra did not emit exactly one callee report')
     return reports[0]
+
+
+def import_category(name):
+    # Never expose arbitrary imported symbols or app-specific C++ names.
+    if name in xrefs.SAFE_IMPORTS or name in {'memcmp', 'memchr', 'strchr', 'strrchr', 'strcat', 'strncat'}:
+        return name
+    std_prefixes = ('_ZNSt6__ndk1', '_ZNKSt6__ndk1', '_ZNSt3__1', '_ZNKSt3__1')
+    if name.startswith(std_prefixes):
+        return 'cpp-standard-library-string' if 'basic_string' in name else 'cpp-standard-library-other'
+    if name.startswith('__cxa_'):
+        return 'cpp-abi-other'
+    return 'other-import'
+
+
+def categorized_imports(elf):
+    relocs = {}
+    for section in elf.iter_sections():
+        if not isinstance(section, RelocationSection) or '.plt' not in section.name:
+            continue
+        symbols = elf.get_section(section['sh_link'])
+        if not isinstance(symbols, SymbolTableSection):
+            continue
+        for rel in section.iter_relocations():
+            index = rel['r_info_sym']
+            if index < symbols.num_symbols():
+                relocs[rel['r_offset']] = import_category(symbols.get_symbol(index).name)
+    return triage.plt_targets(elf, relocs)[0]
 
 
 def target_plan(path, fixture=False):
@@ -105,7 +134,7 @@ def run_probe(headless, binary, fixture=False):
         raise RuntimeError('Synthetic Ghidra callee probe failed to recover the expected direct call: ' +
                            json.dumps(rows[0], separators=(',', ':'))[:2800])
     with Path(binary).open('rb') as handle:
-        imports = xrefs.safe_import_plt(ELFFile(handle))
+        imports = categorized_imports(ELFFile(handle))
     for row in rows:
         for call in row.get('calls', []):
             try:

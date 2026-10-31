@@ -41,6 +41,12 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertEqual(len(decoded['stackEvidence']['calls']), 8)
         self.assertTrue(decoded['stackEvidence']['truncated'])
 
+    def test_import_categorization_redacts_unknown_symbols(self):
+        self.assertEqual(callees.import_category('strlen'), 'strlen')
+        self.assertEqual(callees.import_category('_ZNSt6__ndk112basic_stringIcE6appendEPKc'), 'cpp-standard-library-string')
+        self.assertEqual(callees.import_category('_ZNSt6__ndk16vectorIcE3fooEv'), 'cpp-standard-library-other')
+        self.assertEqual(callees.import_category('_ZN4Game9SecretFunEv'), 'other-import')
+
     def test_callee_parser_and_redacted_annotation(self):
         text = 'WB_GHIDRA_CALLEES:{"kind":"ghidra-callees-probe","functions":[]} (GhidraScript)\n'
         self.assertEqual(callees.parse_report(io.StringIO(text))['functions'], [])

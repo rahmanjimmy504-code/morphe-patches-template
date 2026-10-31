@@ -7,6 +7,7 @@ import ghidra.app.cmd.disassemble.DisassembleCommand;
 import ghidra.app.cmd.function.ApplyFunctionSignatureCmd;
 import ghidra.app.cmd.function.CreateFunctionCmd;
 import ghidra.app.decompiler.DecompInterface;
+import ghidra.app.decompiler.DecompileOptions;
 import ghidra.app.decompiler.DecompileResults;
 import ghidra.program.model.address.Address;
 import ghidra.program.model.address.AddressSet;
@@ -173,14 +174,14 @@ public class WorldboxProbe extends GhidraScript {
         } catch (ArithmeticException ex) { return false; }
     }
 
-    private Map<String, Object> stackEvidence(HighFunction high, Varnode argument, Address site) {
+    private Map<String, Object> stackEvidence(HighFunction high, Varnode argument, Address site, Address start, long size) {
         Map<String, Object> report = new LinkedHashMap<>();
         Long object = stackOffset(argument);
         report.put("stackAddressResolved", object != null);
         report.put("ordering", "instruction-address-only");
         List<Map<String, Object>> writes = new ArrayList<>();
         List<Map<String, Object>> calls = new ArrayList<>();
-        int examined = 0;
+        int examined = 0, outsideFdeOperations = 0;
         boolean truncated = false;
         if (object != null) {
             Iterator<PcodeOpAST> ops = high.getPcodeOps();
@@ -188,6 +189,7 @@ public class WorldboxProbe extends GhidraScript {
                 PcodeOpAST op = ops.next();
                 if (++examined > 8192) { truncated = true; break; }
                 Address pc = op.getSeqnum().getTarget();
+                if (pc.compareTo(start) < 0 || pc.compareTo(start.add(size)) >= 0) { outsideFdeOperations++; continue; }
                 if (pc.compareTo(site) >= 0) continue;
                 Long destination = null;
                 Varnode value = null;
@@ -225,6 +227,7 @@ public class WorldboxProbe extends GhidraScript {
             }
         }
         report.put("operationsExamined", examined);
+        report.put("outsideFdeOperations", outsideFdeOperations);
         report.put("truncated", truncated);
         report.put("writes", writes);
         report.put("calls", calls);
@@ -248,10 +251,19 @@ public class WorldboxProbe extends GhidraScript {
         return "\"" + text + "\"";
     }
 
+    private DecompInterface boundedDecompiler() {
+        DecompInterface decompiler = new DecompInterface();
+        DecompileOptions options = new DecompileOptions();
+        options.setMaxInstructions(8192);
+        options.setMaxJumpTableEntries(128);
+        decompiler.setOptions(options);
+        return decompiler;
+    }
+
     private void inspectCallees(String[] args) throws Exception {
         if (args.length < 3) throw new IllegalArgumentException("expected image base and bounded functions");
         originalBase = Long.decode(args[1]);
-        DecompInterface decompiler = new DecompInterface();
+        DecompInterface decompiler = boundedDecompiler();
         boolean opened = decompiler.openProgram(currentProgram);
         List<Map<String, Object>> functions = new ArrayList<>();
         for (int i = 2; i < args.length; i++) {
@@ -277,11 +289,14 @@ public class WorldboxProbe extends GhidraScript {
                 List<Map<String, Object>> calls = new ArrayList<>();
                 List<Map<String, Object>> returns = new ArrayList<>();
                 boolean truncated = false;
-                int examined = 0, directCallCount = 0;
+                int examined = 0, directCallCount = 0, outsideFdeOperations = 0;
+                Address fdeStart = mapped(start), fdeEnd = fdeStart.add(size);
                 Iterator<PcodeOpAST> ops = result.getHighFunction().getPcodeOps();
                 while (ops.hasNext()) {
                     PcodeOpAST op = ops.next();
                     if (++examined > 8192) { truncated = true; break; }
+                    Address opAddress = op.getSeqnum().getTarget();
+                    if (opAddress.compareTo(fdeStart) < 0 || opAddress.compareTo(fdeEnd) >= 0) { outsideFdeOperations++; continue; }
                     String mnemonic = op.getMnemonic();
                     counts.put(mnemonic, counts.getOrDefault(mnemonic, 0) + 1);
                     for (int j = 0; j < op.getNumInputs(); j++) {
@@ -307,6 +322,7 @@ public class WorldboxProbe extends GhidraScript {
                 }
                 row.put("operationCounts", counts);
                 row.put("operationsExamined", examined);
+                row.put("outsideFdeOperations", outsideFdeOperations);
                 row.put("directCallCount", directCallCount);
                 row.put("calls", calls);
                 row.put("returnGraphs", returns);
@@ -320,7 +336,7 @@ public class WorldboxProbe extends GhidraScript {
         Map<String, Object> output = new LinkedHashMap<>();
         output.put("kind", "ghidra-callees-probe");
         output.put("functions", functions);
-        output.put("limitations", "No forced callee prototype; decompiler guesses, address-ordered calls and category matches do not prove runtime behavior, object semantics or metadata access.");
+        output.put("limitations", "No forced callee prototype; Ghidra may follow flow beyond the FDE, and SSA can depend on it. Reported operations are FDE-filtered, but do not prove runtime behavior or metadata access.");
         println("WB_GHIDRA_CALLEES:" + json(output));
     }
 
@@ -336,7 +352,7 @@ public class WorldboxProbe extends GhidraScript {
         boolean signatureApplied = helper != null && applyProbeSignature(helper);
         List<Map<String, Object>> rows = new ArrayList<>();
         Map<Long, Function> functions = new HashMap<>();
-        DecompInterface decompiler = new DecompInterface();
+        DecompInterface decompiler = boundedDecompiler();
         boolean opened = decompiler.openProgram(currentProgram);
         for (int i = 3; i < args.length; i++) {
             String[] parts = args[i].split(":");
@@ -375,7 +391,7 @@ public class WorldboxProbe extends GhidraScript {
                             if (op.getNumInputs() >= 2) {
                                 row.put("argumentAvailable", true);
                                 row.put("argumentGraph", traceArgument(op.getInput(1)));
-                                row.put("stackEvidence", stackEvidence(high, op.getInput(1), mapped(site)));
+                                row.put("stackEvidence", stackEvidence(high, op.getInput(1), mapped(site), mapped(start), size));
                             }
                             break;
                         }
@@ -393,7 +409,7 @@ public class WorldboxProbe extends GhidraScript {
         output.put("helperSignatureApplied", signatureApplied);
         output.put("forcedPrototype", true);
         output.put("sites", rows);
-        output.put("limitations", "Artificial helper prototype and address-ordered SSA evidence are heuristic; writes and calls may be infeasible or overwritten and do not prove actual stack contents, metadata access, or runtime behavior.");
+        output.put("limitations", "Artificial helper prototype and FDE-filtered, address-ordered evidence are heuristic; Ghidra may follow flow beyond the FDE. Writes and calls may be infeasible or overwritten and do not prove runtime behavior.");
         println("WB_GHIDRA_JSON:" + json(output));
     }
 }
