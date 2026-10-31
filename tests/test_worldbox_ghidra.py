@@ -1,5 +1,6 @@
 """Host-side validation for the bounded Ghidra wrapper and report parser."""
 import io
+import json
 import os
 from pathlib import Path
 import sys
@@ -25,6 +26,19 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertFalse(probe.valid_fixture_evidence(dict(evidence, stackAddressResolved=False)))
         self.assertFalse(probe.valid_fixture_evidence(dict(evidence, writes=[write(8, 'constant')])))
         self.assertFalse(probe.valid_fixture_evidence(dict(evidence, writes=[write(8, 'constant'), write(16, 'register')])))
+
+    def test_site_annotation_compacts_and_retains_evidence(self):
+        write = {'relativeOffset': 8, 'width': 8,
+                 'sourceGraph': {'rootKinds': ['constant', 'stack'], 'stringCategories': [], 'nodes': 2}}
+        call = {'site': '0x1234', 'target': '0x5678', 'argumentIndex': 1, 'relativeOffset': 0}
+        row = {'site': '0xabc', 'stackEvidence': {'stackAddressResolved': True,
+               'writes': [write] * 8, 'calls': [call] * 8, 'truncated': True}}
+        text = probe.compact_site(row)
+        self.assertLessEqual(len(text), 3800)
+        decoded = json.loads(text)
+        self.assertEqual(decoded['stackEvidence']['writes'][0]['roots'], ['constant', 'stack'])
+        self.assertEqual(len(decoded['stackEvidence']['calls']), 8)
+        self.assertTrue(decoded['stackEvidence']['truncated'])
 
     def test_marked_json_ignores_ghidra_log_decoration(self):
         report = probe.marked_report(io.StringIO('INFO Probe> WB_GHIDRA_JSON:{"kind":"ghidra-bounded-probe","sites":[]} (GhidraScript)\n'))

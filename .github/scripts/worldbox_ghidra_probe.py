@@ -93,6 +93,24 @@ def targets(path, fixture=False):
         return {'imageBase': min(loads), 'helper': helper, 'helperSize': helper_frame[1] - helper, 'targets': selected}
 
 
+def compact_site(row):
+    """Fit one bounded site's categories into one GitHub annotation."""
+    row = dict(row)
+    evidence = dict(row.get('stackEvidence', {}))
+    simplified = []
+    for item in evidence.get('writes', []):
+        graph = item.get('sourceGraph', {})
+        simplified.append({'offset': item['relativeOffset'], 'width': item['width'],
+                           'roots': graph.get('rootKinds', []), 'strings': graph.get('stringCategories', []),
+                           'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))})
+    evidence['writes'] = simplified
+    row['stackEvidence'] = evidence
+    text = json.dumps(row, separators=(',', ':'))
+    if len(text) > 3800:
+        raise ValueError('Ghidra site summary exceeds the annotation safety bound')
+    return text
+
+
 def valid_fixture_evidence(evidence):
     # The synthetic caller explicitly writes constants to fields 1 and 2.
     # Ghidra may model the first field as incoming storage rather than a write.

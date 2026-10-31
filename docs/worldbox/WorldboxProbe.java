@@ -199,7 +199,7 @@ public class WorldboxProbe extends GhidraScript {
                     value = op.getOutput();
                 }
                 if (destination != null && value != null && nearObject(destination, object)) {
-                    if (writes.size() >= 8) { truncated = true; continue; }
+                    if (writes.size() >= 8) { truncated = true; writes.remove(0); }
                     Map<String, Object> write = new LinkedHashMap<>();
                     write.put("relativeOffset", destination - object);
                     write.put("width", value.getSize());
@@ -212,7 +212,7 @@ public class WorldboxProbe extends GhidraScript {
                     for (int i = 1; i < op.getNumInputs(); i++) {
                         Long argumentOffset = stackOffset(op.getInput(i));
                         if (argumentOffset == null || !nearObject(argumentOffset, object)) continue;
-                        if (calls.size() >= 8) { truncated = true; break; }
+                        if (calls.size() >= 8) { truncated = true; calls.remove(0); }
                         Map<String, Object> call = new LinkedHashMap<>();
                         call.put("site", "0x" + Long.toHexString(pc.getOffset() - currentProgram.getImageBase().getOffset() + originalBase));
                         long target = op.getInput(0).getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
