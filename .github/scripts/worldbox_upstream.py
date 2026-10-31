@@ -119,13 +119,38 @@ def annotation_payloads(report):
     return texts
 
 
-def inspect_many(path, targets):
+def reference_summary(path, target):
+    """Summarize candidate address references without publishing section names or code."""
+    report = refs.inspect(path, target)
+    pairs = report['pcRelativeAddressPairs']
+    relocations = report['matchingRelocations']
+    pointers = report['alignedPointerValues']
+    return {
+        'symbolMatches': report['symbolMatches'],
+        'pcRelativePairs': {'count': pairs['count'], 'sampleSites': pairs['samples'][:4]},
+        'relocations': {'count': relocations['count'],
+                        'sampleSlots': [item['slot'] for item in relocations['samples'][:4]],
+                        'unsupportedSectionCount': len(relocations['unsupportedRelocationSections'])},
+        'alignedPointers': {'count': pointers['count'],
+                            'sampleLocations': [item['location'] for item in pointers['samples'][:4]]},
+        'executableBytesScanned': report['executableScanned'], 'execTruncated': report['execTruncated'],
+        'allocatedDataBytesScanned': report['allocatedDataScanned'], 'dataTruncated': report['dataTruncated'],
+        'limitation': 'Static references are candidates, not proof of runtime calls; indirect values and packed relocations may be missed.'}
+
+
+def inspect_many(path, targets, references=False):
     """Evaluate at most two distinct bounded upstream targets."""
     if (not 1 <= len(targets) <= 2 or len(set(targets)) != len(targets) or
             any(not isinstance(value, int) or value < 0 or value > 0xffffffffffffffff or value % 4
                 for value in targets)):
         raise ValueError('Expected one or two distinct aligned ARM64 targets')
-    return {'kind': 'arm64-upstream-multi', 'reports': [inspect(path, target) for target in targets]}
+    reports = []
+    for target in targets:
+        row = inspect(path, target)
+        if references:
+            row['referenceSummary'] = reference_summary(path, target)
+        reports.append(row)
+    return {'kind': 'arm64-upstream-multi', 'reports': reports}
 
 
 def multi_annotation_payloads(report):
@@ -153,8 +178,11 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('elf')
     parser.add_argument('--target', action='append', type=lambda value: int(value, 0))
+    parser.add_argument('--references', action='store_true')
     args = parser.parse_args()
-    result = inspect_many(args.elf, args.target) if args.target else inspect(args.elf)
+    if args.references and not args.target:
+        parser.error('--references requires one or two explicit targets')
+    result = inspect_many(args.elf, args.target, args.references) if args.target else inspect(args.elf)
     print(json.dumps(result, separators=(',', ':')))
 
 if __name__ == '__main__':

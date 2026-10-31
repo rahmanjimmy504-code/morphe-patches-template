@@ -62,6 +62,18 @@ class UpstreamTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             upstream.inspect_many('unused', [0x3000, 0x3040, 0x3080])
 
+    def test_reference_summary_reports_relocation_without_section_names(self):
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True))
+            report = upstream.inspect_many(path, [0x3000], references=True)
+        summary = report['reports'][0]['referenceSummary']
+        self.assertEqual(summary['relocations']['count'], 1)
+        self.assertEqual(summary['relocations']['sampleSlots'], ['0x6000'])
+        self.assertNotIn('.rela.dyn', json.dumps(summary))
+        payloads = upstream.multi_annotation_payloads(report)
+        self.assertLess(len(payloads[0][1]), 3800)
+
     def test_multi_annotation_marks_hidden_samples(self):
         item = {'target': '0x3000', 'examples': [{'site': hex(i * 4)} for i in range(8)]}
         payloads = upstream.multi_annotation_payloads({'kind': 'arm64-upstream-multi', 'reports': [item]})

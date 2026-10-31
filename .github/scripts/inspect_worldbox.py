@@ -127,8 +127,11 @@ try:
             if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
             level2 = os.environ.get('WORLDBOX_UPSTREAM_LEVEL2') == '1'
+            level3 = os.environ.get('WORLDBOX_UPSTREAM_LEVEL3') == '1'
             probe_args = [sys.executable, '.github/scripts/worldbox_upstream.py', str(native)]
-            if level2:
+            if level3:
+                probe_args += ['--target', '0x3a90ae0', '--target', '0x3a90ae4', '--references']
+            elif level2:
                 probe_args += ['--target', '0x18fa1f4', '--target', '0x18fa520']
             result = subprocess.run(probe_args, capture_output=True, text=True, timeout=600)
             if result.returncode:
@@ -137,7 +140,7 @@ try:
                 raise RuntimeError(message)
             from worldbox_upstream import annotation_payloads, multi_annotation_payloads
             report = json.loads(result.stdout)
-            if level2:
+            if level2 or level3:
                 for kind, payload in multi_annotation_payloads(report):
                     print('::warning title=WorldBox upstream ' + kind + '::' + payload)
             else:
