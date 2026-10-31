@@ -200,6 +200,30 @@ try:
                 for payload in payloads[1:]:
                     print('::warning title=WorldBox upstream example::' + payload)
             sys.exit(0)
+        if os.environ.get('WORLDBOX_RAW_LEADS') == '1':
+            if not native or not native.is_file() or not unity or not unity.is_file():
+                raise RuntimeError('Both ARM64 libil2cpp.so and libunity.so are required.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 libil2cpp hash mismatch; refusing analysis.')
+            for label, library in [('libil2cpp', native), ('libunity', unity)]:
+                completed = subprocess.run([sys.executable, '.github/scripts/worldbox_raw_leads.py', str(library)],
+                                           capture_output=True, text=True, timeout=360, check=True)
+                report = json.loads(completed.stdout)
+                if report.get('kind') != 'arm64-raw-name-leads':
+                    raise RuntimeError('Unexpected raw name-lead result.')
+                # The independently observed libunity hash is recorded, not asserted
+                # to be a previously verified canonical hash.
+                print('ARM64 raw-name report for ' + label + ': ' + json.dumps(report, separators=(',', ':')))
+                summary = {key: report[key] for key in ('sha256', 'fileBytes', 'scannedBytes', 'truncated')}
+                summary['library'] = label
+                summary['counts'] = {row['category'] + '/' + row['encoding']: row['count'] for row in report['results']}
+                print('::warning title=WorldBox raw-name summary::' + json.dumps(summary, separators=(',', ':')))
+                for row in report['results']:
+                    if row['count']:
+                        print('::warning title=WorldBox raw-name examples::' + json.dumps({'library': label, **row}, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_STRING_LEADS') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')

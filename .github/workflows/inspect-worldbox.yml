@@ -13,11 +13,13 @@ on:
       - .github/scripts/worldbox_ghidra_callees.py
       - .github/scripts/worldbox_upstream.py
       - .github/scripts/worldbox_string_leads.py
+      - .github/scripts/worldbox_raw_leads.py
       - docs/worldbox/WorldboxProbe.java
       - tests/fixtures/worldbox_ghidra_fixture.c
       - tests/test_worldbox_ghidra.py
       - tests/test_worldbox_upstream.py
       - tests/test_worldbox_string_leads.py
+      - tests/test_worldbox_raw_leads.py
       - tests/test_worldbox_native.py
       - tests/test_worldbox_native_flow.py
       - tests/test_worldbox_native_xrefs.py
@@ -127,6 +129,24 @@ jobs:
           WORLDBOX_UPSTREAM_RETURN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-return]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_INPUT_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-input]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_CHILDREN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-children]') && '1' || '0' }}
+          PYTHONUNBUFFERED: '1'
+        run: python .github/scripts/inspect_worldbox.py
+  raw-name-leads-probe:
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-raw-leads]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned analysis libraries
+        run: python -m pip install requests 'pyelftools==0.32' 'capstone==5.0.6'
+      - name: Test synthetic byte searches and ELF mapping
+        run: python tests/test_worldbox_raw_leads.py
+      - name: Scan original ARM64 libraries
+        env:
+          WORLDBOX_RAW_LEADS: '1'
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   string-leads-probe:
