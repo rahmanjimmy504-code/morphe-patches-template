@@ -141,6 +141,9 @@ def main():
     try:
         print(json.dumps(run_probe(args.headless, args.binary, args.fixture), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
+        if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
+            message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
+            print('::error title=Synthetic Ghidra fixture::' + message[:3000])
         print('Ghidra probe failed: ' + str(exc), file=sys.stderr)
         raise SystemExit(1)
 
