@@ -85,13 +85,14 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') }}
         run: python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --input-chain
       - name: Verify callee decompilation on the synthetic ARM64 fixture
-        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') }}
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
       - name: Decompile bounded original ARM64 caller functions
         env:
           WORLDBOX_GHIDRA_CALLEE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') && '1' || '0' }}
           WORLDBOX_GHIDRA_ORIGIN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-origin') && '1' || '0' }}
           WORLDBOX_GHIDRA_TAIL_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-tail') && '1' || '0' }}
+          WORLDBOX_GHIDRA_RETURN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-return') && '1' || '0' }}
           WORLDBOX_GHIDRA_SOURCE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-source') && '1' || '0' }}
           WORLDBOX_GHIDRA_CHAIN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') && '1' || '0' }}
           WORLDBOX_GHIDRA_PROBE: '1'
@@ -119,6 +120,7 @@ jobs:
           WORLDBOX_UPSTREAM_LEVEL2: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-level2]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_LEVEL3: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-level3]') && '1' || '0' }}
           WORLDBOX_UPSTREAM_TAIL_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-tail]') && '1' || '0' }}
+          WORLDBOX_UPSTREAM_RETURN_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-upstream-return]') && '1' || '0' }}
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   native-arm64-probe:

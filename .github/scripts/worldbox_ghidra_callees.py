@@ -22,6 +22,7 @@ GAME_CALLS = {0x1891c34: (0x18a8b08, 0x18facb8, 0x1902178, 0x1902260),
               0x18914e8: (0x19021d4, 0x19022b4)}
 ORIGIN_CALLS = {0x1903990: (0x3995fc4,)}
 TAIL_CALLS = {0x18d834c: (0x190399c,)}
+RETURN_CALLS = {0x18d84bc: (0x18d83a0,)}
 MARKER = 'WB_GHIDRA_CALLEES:'
 
 
@@ -68,7 +69,7 @@ def categorized_imports(elf):
     return triage.plt_targets(elf, relocs)[0]
 
 
-def target_plan(path, fixture=False, origin=False, tail_origin=False):
+def target_plan(path, fixture=False, origin=False, tail_origin=False, return_origin=False):
     if fixture:
         plan = previous.targets(path, fixture=True)
         item = plan['targets'][0]
@@ -89,7 +90,7 @@ def target_plan(path, fixture=False, origin=False, tail_origin=False):
                         for e in dwarf.EH_CFI_entries() if isinstance(e, FDE) and e['address_range'])
         starts = [lo for lo, _ in frames]
         selected = []
-        selected_calls = TAIL_CALLS if tail_origin else ORIGIN_CALLS if origin else GAME_CALLS
+        selected_calls = RETURN_CALLS if return_origin else TAIL_CALLS if tail_origin else ORIGIN_CALLS if origin else GAME_CALLS
         decode = xrefs.direct_tail if tail_origin else triage.direct_branch
         for entry, sites in selected_calls.items():
             frame = flow.frame_for_site(frames, starts, entry)
@@ -109,8 +110,8 @@ def target_plan(path, fixture=False, origin=False, tail_origin=False):
         return {'imageBase': min(loads), 'functions': selected}
 
 
-def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False):
-    plan = target_plan(binary, fixture, origin, tail_origin)
+def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False):
+    plan = target_plan(binary, fixture, origin, tail_origin, return_origin)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
     with tempfile.TemporaryDirectory(prefix='worldbox-ghidra-callees-', dir=base) as td:
@@ -196,9 +197,10 @@ def main():
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--origin', action='store_true')
     modes.add_argument('--tail-origin', action='store_true')
+    modes.add_argument('--return-origin', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

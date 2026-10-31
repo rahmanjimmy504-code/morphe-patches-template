@@ -78,6 +78,7 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertNotEqual(plan['functions'][0]['entry'], plan['expected'])
         self.assertEqual(callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True, origin=True), plan)
         self.assertEqual(callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True, tail_origin=True), plan)
+        self.assertEqual(callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True, return_origin=True), plan)
 
     def test_marked_json_ignores_ghidra_log_decoration(self):
         report = probe.marked_report(io.StringIO('INFO Probe> WB_GHIDRA_JSON:{"kind":"ghidra-bounded-probe","sites":[]} (GhidraScript)\n'))

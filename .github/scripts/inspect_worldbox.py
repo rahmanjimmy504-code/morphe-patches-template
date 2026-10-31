@@ -86,13 +86,16 @@ try:
             tool = os.environ.get('GHIDRA_HEADLESS', '')
             origin_mode = os.environ.get('WORLDBOX_GHIDRA_ORIGIN_PROBE') == '1'
             tail_mode = os.environ.get('WORLDBOX_GHIDRA_TAIL_PROBE') == '1'
-            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode or tail_mode
+            return_mode = os.environ.get('WORLDBOX_GHIDRA_RETURN_PROBE') == '1'
+            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode or tail_mode or return_mode
             source_mode = os.environ.get('WORLDBOX_GHIDRA_SOURCE_PROBE') == '1'
             chain_mode = os.environ.get('WORLDBOX_GHIDRA_CHAIN_PROBE') == '1'
             probe_script = 'worldbox_ghidra_callees.py' if callee_mode else 'worldbox_ghidra_probe.py'
             probe_args = [sys.executable, '.github/scripts/' + probe_script,
                           '--headless', tool, '--binary', str(native)]
-            if tail_mode:
+            if return_mode:
+                probe_args.append('--return-origin')
+            elif tail_mode:
                 probe_args.append('--tail-origin')
             elif origin_mode:
                 probe_args.append('--origin')
@@ -137,8 +140,12 @@ try:
             level2 = os.environ.get('WORLDBOX_UPSTREAM_LEVEL2') == '1'
             level3 = os.environ.get('WORLDBOX_UPSTREAM_LEVEL3') == '1'
             tail_mode = os.environ.get('WORLDBOX_UPSTREAM_TAIL_PROBE') == '1'
+            return_mode = os.environ.get('WORLDBOX_UPSTREAM_RETURN_PROBE') == '1'
             probe_args = [sys.executable, '.github/scripts/worldbox_upstream.py', str(native)]
-            if tail_mode:
+            if return_mode:
+                probe_args += ['--only-origin', '--trace-origin', '0x18d84bc',
+                               '--caller', '0x18d83a0', '--caller-kind', 'direct']
+            elif tail_mode:
                 probe_args += ['--only-origin', '--trace-origin', '0x18d834c',
                                '--caller', '0x190399c', '--caller-kind', 'tail']
             elif level3:
@@ -153,7 +160,7 @@ try:
                 raise RuntimeError(message)
             from worldbox_upstream import annotation_payloads, multi_annotation_payloads
             report = json.loads(result.stdout)
-            if tail_mode:
+            if tail_mode or return_mode:
                 if report.get('kind') != 'arm64-upstream-origin':
                     raise RuntimeError('Unexpected upstream origin report')
                 payload = json.dumps(report.get('origin', {}), separators=(',', ':'))
