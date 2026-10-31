@@ -119,6 +119,25 @@ try:
             for row in rows:
                 print('::warning title=WorldBox Ghidra site::' + compact_site(row))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_UPSTREAM_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            result = subprocess.run([sys.executable, '.github/scripts/worldbox_upstream.py', str(native)],
+                                    capture_output=True, text=True, timeout=600)
+            if result.returncode:
+                message = 'Upstream probe failed: ' + result.stderr[-1200:]
+                print('::error title=WorldBox upstream probe::' + message.replace('%', '%25').replace('\n', '%0A'))
+                raise RuntimeError(message)
+            from worldbox_upstream import annotation_payloads
+            payloads = annotation_payloads(json.loads(result.stdout))
+            print('::warning title=WorldBox upstream summary::' + payloads[0])
+            for payload in payloads[1:]:
+                print('::warning title=WorldBox upstream example::' + payload)
+            sys.exit(0)
         if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
