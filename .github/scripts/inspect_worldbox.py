@@ -200,6 +200,30 @@ try:
                 for payload in payloads[1:]:
                     print('::warning title=WorldBox upstream example::' + payload)
             sys.exit(0)
+        if os.environ.get('WORLDBOX_UNITY_SCHEMA') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 libil2cpp hash mismatch; refusing analysis.')
+            base = Path(td) / 'base.apk'
+            if not base.is_file():
+                raise RuntimeError('Base APK not found in the bundle.')
+            with base.open('rb') as f:
+                base_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if base_hash != 'ab7c6bab7d2233c26a9e18426aa58dd60fa0ae0ad9be6fa0b2a6673dd8f89c3f':
+                raise RuntimeError('Base APK does not match the observed asset-scan sample.')
+            result = subprocess.run([sys.executable, '.github/scripts/worldbox_unity_schema.py', str(base)],
+                                    capture_output=True, text=True, timeout=360, check=True)
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-unity-schema-leads':
+                raise RuntimeError('Unexpected Unity schema result.')
+            print('Unity selected component schema report: ' + json.dumps(report, separators=(',', ':')))
+            for file in report['files']:
+                for obj in file['objects']:
+                    print('::warning title=WorldBox component schema::' + json.dumps({'entry': file['entry'], **obj}, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GUID_SCRIPT_REFS') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
