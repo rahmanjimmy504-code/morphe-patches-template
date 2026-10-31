@@ -69,6 +69,9 @@ class UpstreamTest(unittest.TestCase):
             result = upstream.trace_origin(path, 0x3080, 0x3000)
             self.assertEqual(result['status'], 'modeled')
             self.assertEqual(result['returns'][0]['x0'], ['entry-argument-1'])
+            self.assertEqual(result['callerInputs']['arguments']['x0'], ['entry-argument-0'])
+            self.assertEqual(result['callerInputs']['arguments']['x2'], ['entry-argument-2'])
+            self.assertTrue(result['callerInputs']['reachedInModel'])
             with self.assertRaisesRegex(ValueError, 'direct branch'):
                 upstream.trace_origin(path, 0x3080, 0x3004)
 
@@ -83,6 +86,8 @@ class UpstreamTest(unittest.TestCase):
             result = upstream.trace_origin(path, 0x3080, 0x3040, caller_kind='tail')
             self.assertEqual(result['callerKind'], 'tail')
             self.assertEqual(result['returns'][0]['x0'], ['entry-argument-1'])
+            self.assertTrue(result['callerInputs']['reachedInModel'])
+            self.assertEqual(result['callerInputs']['arguments']['x0'], ['entry-argument-0'])
             with self.assertRaisesRegex(ValueError, 'direct branch'):
                 upstream.trace_origin(path, 0x3080, 0x3040)
             with self.assertRaisesRegex(ValueError, 'tail branch'):

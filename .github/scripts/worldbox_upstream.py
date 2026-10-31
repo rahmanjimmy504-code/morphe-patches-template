@@ -185,6 +185,29 @@ def trace_origin(path, target, caller, caller_kind='direct'):
         imports = refs.safe_import_plt(elf)
         handle.seek(sec['sh_offset'] + lo - sec['sh_addr'])
         flow_result = flow.analyze_window(handle.read(hi - lo), lo, imports, {}, classify, capture_returns=True)
+        caller_info = {'status': 'no-unwind-range'}
+        caller_frame = flow.frame_for_site(frames, [frame_lo for frame_lo, _ in frames], caller)
+        if caller_frame is not None:
+            caller_lo, caller_hi = caller_frame
+            caller_sec = next((s for s in executable if s['sh_addr'] <= caller_lo and caller_hi <= s['sh_addr'] + s['sh_size']), None)
+            if caller_sec is None or caller_hi - caller_lo > flow.MAX_FUNCTION or caller_lo % 4:
+                caller_info = {'status': 'unusable-or-too-large-range'}
+            else:
+                handle.seek(caller_sec['sh_offset'] + caller_lo - caller_sec['sh_addr'])
+                caller_bytes = handle.read(caller_hi - caller_lo)
+                caller_imports = dict(imports)
+                caller_imports[target] = 'source-helper'
+                caller_result = flow.analyze_window(caller_bytes, caller_lo, caller_imports,
+                                                    {caller: 'source-helper'}, classify)
+                call = caller_result['calls'][0]
+                arguments = {reg: call.get('arguments', {}).get(reg, []) for reg in ('x0', 'x1', 'x2')}
+                origin_sites = {value.rsplit('@', 1)[1] for values in arguments.values() for value in values if '@' in value}
+                origins = [item for item in call.get('callOrigins', []) if item['site'] in origin_sites]
+                caller_info = {'status': 'modeled', 'function': hex(caller_lo),
+                               'reachedInModel': call['reachedInModel'], 'arguments': arguments,
+                               'callOrigins': origins[:4],
+                               'callOriginsTruncated': call.get('callOriginsTruncated', False) or len(origins) > 4,
+                               'workLimitReached': caller_result['workLimitReached']}
         returns = []
         for item in flow_result['returns'][:4]:
             entry = dict(item)
@@ -193,6 +216,7 @@ def trace_origin(path, target, caller, caller_kind='direct'):
             returns.append(entry)
         transfers = flow_result['tailTransfers'][:4]
         return {'target': hex(target), 'caller': hex(caller), 'callerKind': caller_kind, 'status': 'modeled', 'fdeBytes': hi - lo,
+                'callerInputs': caller_info,
                 'decodedInstructions': flow_result['decodedInstructions'], 'visitedInstructions': flow_result['visitedInstructions'],
                 'workLimitReached': flow_result['workLimitReached'], 'returns': returns,
                 'returnsTruncated': flow_result['returnsTruncated'] or len(flow_result['returns']) > 4,
