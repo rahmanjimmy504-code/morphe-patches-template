@@ -325,6 +325,10 @@ public class WorldboxProbe extends GhidraScript {
                         long target = op.getInput(0).getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
                         call.put("site", "0x" + Long.toHexString(site));
                         call.put("target", "0x" + Long.toHexString(target));
+                        if (calls.isEmpty()) {
+                            call.put("firstArgumentAvailable", op.getNumInputs() > 1);
+                            if (op.getNumInputs() > 1) call.put("firstArgumentGraph", traceArgument(op.getInput(1)));
+                        }
                         calls.add(call);
                     } else if (op.getOpcode() == PcodeOp.RETURN && op.getNumInputs() > 1) {
                         if (returns.size() < 4) returns.add(traceArgument(op.getInput(1)));

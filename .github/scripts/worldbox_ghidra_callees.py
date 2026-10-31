@@ -165,6 +165,19 @@ def compact_callee(row):
                        'operations': sorted(graph.get('operationCounts', {})), 'nodes': graph.get('nodes', 0),
                        'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))})
     row['returnGraphs'] = graphs
+    calls = []
+    for call in row.get('calls', []):
+        call = dict(call)
+        graph = call.get('firstArgumentGraph')
+        if graph is not None:
+            call['firstArgumentGraph'] = {'roots': graph.get('rootKinds', []),
+                                          'inputRegisters': graph.get('inputRegisters', []),
+                                          'operations': sorted(graph.get('operationCounts', {})),
+                                          'strings': graph.get('stringCategories', []),
+                                          'nodes': graph.get('nodes', 0),
+                                          'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))}
+        calls.append(call)
+    row['calls'] = calls
     text = json.dumps(row, separators=(',', ':'))
     if len(text) > 3800:
         raise ValueError('Ghidra callee summary exceeds the annotation safety bound')
