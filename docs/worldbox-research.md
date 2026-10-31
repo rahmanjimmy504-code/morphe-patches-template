@@ -234,3 +234,11 @@ The scans omit unselected files, internal compressed contents, different terms o
 - `PremiumWindow` (2449)
 
 These are serialized Unity script identifiers, not method bodies, IL2CPP addresses, verified functions, or proof of runtime behavior. The names suggest plausible UI or premium-related leads, but in particular `PremiumElementsChecker` is **not established** to implement the entitlement check. This narrow ASCII search can miss other scripts, alternate names or obfuscated metadata. No Premium-unlock patch, tested entitlement modification, or release resulted.
+
+### Serialized references to Premium-related scripts: 2026-10-31
+
+[Run 41195520765](https://github.com/rahmanjimmy504-code/morphe-patches-template/actions/runs/41195520765) used UnityPy 1.25.4 after verifying the previously observed base APK and ARM64 library hashes and rechecking all six MonoScript path IDs and class names. A synthetic serialized MonoBehaviour fixture verified common-base `m_Script` pointer decoding, same-file, external-basename and unresolved-CAB handling. For actual WorldBox assets the probe read only common MonoBehaviour base fields, not game-specific fields or method bodies.
+
+It parsed five selected `assets/bin/Data` serialized files (17,931,788 bytes): `globalgamemanagers`, `globalgamemanagers.assets`, `level0`, `sharedassets0.assets` and `sharedassets1.assets`. There were 118 MonoBehaviour objects (30 in `level0`, 88 in `sharedassets1.assets`), no recorded base-field parse errors, and no candidate `m_Script` path IDs matching the six previously identified scripts. The limits were not reached and no selected files were skipped.
+
+This does not prove those classes are unused: the probe covers only the selected base-APK serialized files, not other APK locations, Unity asset bundles, remote/downloaded assets, dynamic instantiation, or executable code. Unity script pointers can depend on external-file and CAB resolution; a path ID or matching basename alone would not prove identity. There is still no identified Premium entitlement check or working patch.
