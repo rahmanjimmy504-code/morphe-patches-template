@@ -89,13 +89,16 @@ try:
             return_mode = os.environ.get('WORLDBOX_GHIDRA_RETURN_PROBE') == '1'
             input_mode = os.environ.get('WORLDBOX_GHIDRA_INPUT_PROBE') == '1'
             children_mode = os.environ.get('WORLDBOX_GHIDRA_CHILDREN_PROBE') == '1'
-            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode or tail_mode or return_mode or input_mode or children_mode
+            jni_mode = os.environ.get('WORLDBOX_GHIDRA_JNI_PROBE') == '1'
+            callee_mode = os.environ.get('WORLDBOX_GHIDRA_CALLEE_PROBE') == '1' or origin_mode or tail_mode or return_mode or input_mode or children_mode or jni_mode
             source_mode = os.environ.get('WORLDBOX_GHIDRA_SOURCE_PROBE') == '1'
             chain_mode = os.environ.get('WORLDBOX_GHIDRA_CHAIN_PROBE') == '1'
             probe_script = 'worldbox_ghidra_callees.py' if callee_mode else 'worldbox_ghidra_probe.py'
             probe_args = [sys.executable, '.github/scripts/' + probe_script,
                           '--headless', tool, '--binary', str(native)]
-            if children_mode:
+            if jni_mode:
+                probe_args.append('--jni')
+            elif children_mode:
                 probe_args.append('--input-children')
             elif input_mode:
                 probe_args.append('--input-origin')

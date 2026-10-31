@@ -82,6 +82,17 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertEqual(callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True, input_origin=True), plan)
         self.assertEqual(callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True, input_children=True), plan)
 
+    @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
+    def test_selects_exported_jni_with_unwind_bounds(self):
+        path = os.environ['WORLDBOX_TEST_FIXTURE']
+        plan = callees.target_plan(path, fixture=True, jni=True)
+        self.assertEqual(len(plan['functions']), 1)
+        self.assertGreater(plan['functions'][0]['size'], 0)
+        self.assertNotEqual(plan['functions'][0]['entry'], plan['expected'])
+        ordinary = callees.target_plan(path, fixture=True)
+        self.assertEqual(plan['expected'], ordinary['expected'])
+        self.assertNotEqual(plan['functions'][0]['entry'], ordinary['functions'][0]['entry'])
+
     def test_marked_json_ignores_ghidra_log_decoration(self):
         report = probe.marked_report(io.StringIO('INFO Probe> WB_GHIDRA_JSON:{"kind":"ghidra-bounded-probe","sites":[]} (GhidraScript)\n'))
         self.assertEqual(report['sites'], [])

@@ -25,3 +25,8 @@ void *fixture_chain(struct fixture_outer *outer) {
     return fixture_helper(object, outer->inner->value);
 }
 /* Run requested. */
+/* Fixture-only exported JNI-shaped entry for testing symbol-to-FDE selection. */
+__attribute__((visibility("default"), noinline))
+void *JNI_OnLoad(void *value, void *reserved) {
+    return fixture_helper(value, reserved);
+}

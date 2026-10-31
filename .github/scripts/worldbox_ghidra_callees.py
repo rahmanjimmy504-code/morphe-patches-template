@@ -71,7 +71,46 @@ def categorized_imports(elf):
     return triage.plt_targets(elf, relocs)[0]
 
 
-def target_plan(path, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False):
+def jni_plan(path, fixture=False):
+    """Locate the exported JNI entry and independently bound it by an FDE."""
+    with Path(path).open('rb') as handle:
+        elf = ELFFile(handle)
+        if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
+            raise ValueError('Expected little-endian ELF64 AArch64')
+        dynsym = elf.get_section_by_name('.dynsym')
+        if not isinstance(dynsym, SymbolTableSection):
+            raise ValueError('No dynamic symbol table')
+        def unique_function(name):
+            found = [s for s in dynsym.iter_symbols() if s.name == name and
+                     s['st_shndx'] != 'SHN_UNDEF' and s['st_info']['type'] == 'STT_FUNC' and s['st_value']]
+            if len(found) != 1:
+                raise ValueError('Expected one defined dynamic function: ' + name)
+            return found[0]['st_value']
+        entry = unique_function('JNI_OnLoad')
+        expected = unique_function('fixture_helper') if fixture else None
+        dwarf = elf.get_dwarf_info()
+        if not dwarf.has_EH_CFI():
+            raise ValueError('No EH-frame unwind information')
+        frames = sorted((e['initial_location'], e['initial_location'] + e['address_range'])
+                        for e in dwarf.EH_CFI_entries() if isinstance(e, FDE) and e['address_range'])
+        frame = flow.frame_for_site(frames, [lo for lo, _ in frames], entry)
+        if not frame or frame[0] != entry or frame[1] - frame[0] > flow.MAX_FUNCTION:
+            raise ValueError('JNI export is not the start of a bounded unwind range')
+        executable = [s for s in elf.iter_sections() if s['sh_flags'] & 4 and s['sh_type'] != 'SHT_NOBITS']
+        if not any(s['sh_addr'] <= entry and frame[1] <= s['sh_addr'] + s['sh_size'] for s in executable):
+            raise ValueError('JNI unwind range is not executable')
+        loads = [p['p_vaddr'] for p in elf.iter_segments() if p['p_type'] == 'PT_LOAD']
+        if not loads:
+            raise ValueError('ELF has no loadable segments')
+        plan = {'imageBase': min(loads), 'functions': [{'entry': entry, 'size': frame[1] - entry}]}
+        if fixture:
+            plan['expected'] = expected
+        return plan
+
+
+def target_plan(path, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False):
+    if jni:
+        return jni_plan(path, fixture=fixture)
     if fixture:
         plan = previous.targets(path, fixture=True)
         item = plan['targets'][0]
@@ -113,8 +152,8 @@ def target_plan(path, fixture=False, origin=False, tail_origin=False, return_ori
         return {'imageBase': min(loads), 'functions': selected}
 
 
-def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False):
-    plan = target_plan(binary, fixture, origin, tail_origin, return_origin, input_origin, input_children)
+def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False):
+    plan = target_plan(binary, fixture, origin, tail_origin, return_origin, input_origin, input_children, jni)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
     with tempfile.TemporaryDirectory(prefix='worldbox-ghidra-callees-', dir=base) as td:
@@ -203,9 +242,10 @@ def main():
     modes.add_argument('--return-origin', action='store_true')
     modes.add_argument('--input-origin', action='store_true')
     modes.add_argument('--input-children', action='store_true')
+    modes.add_argument('--jni', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')
