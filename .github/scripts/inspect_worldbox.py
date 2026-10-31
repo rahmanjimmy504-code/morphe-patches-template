@@ -214,15 +214,17 @@ try:
                 base_hash = hashlib.file_digest(f, 'sha256').hexdigest()
             if base_hash != 'ab7c6bab7d2233c26a9e18426aa58dd60fa0ae0ad9be6fa0b2a6673dd8f89c3f':
                 raise RuntimeError('Base APK does not match the observed asset-scan sample.')
-            result = subprocess.run([sys.executable, '.github/scripts/worldbox_guid_script_refs.py', str(base)],
-                                    capture_output=True, text=True, timeout=900, check=True)
+            args = [sys.executable, '.github/scripts/worldbox_guid_script_refs.py', str(base)]
+            if os.environ.get('WORLDBOX_GUID_ALL') == '1':
+                args.append('--all')
+            result = subprocess.run(args, capture_output=True, text=True, timeout=900, check=True)
             report = json.loads(result.stdout)
             if report.get('kind') != 'worldbox-guid-script-references':
                 raise RuntimeError('Unexpected extensionless Unity-reference result.')
             print('WorldBox extensionless Unity-reference report: ' + json.dumps(report, separators=(',', ':')))
             summary = {k: v for k, v in report.items() if k != 'resultFiles'}
             print('::warning title=WorldBox extensionless Unity reference summary::' + json.dumps(summary, separators=(',', ':')))
-            samples_left = 24
+            samples_left = 4
             for file in report['resultFiles']:
                 for row in file['samples'][:samples_left]:
                     print('::warning title=WorldBox extensionless Unity reference candidate::' + json.dumps({'entry': file['entry'], **row}, separators=(',', ':')))

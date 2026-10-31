@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded search for one MonoScript pointer in serialized APK entries.
+"""Bounded search for selected MonoScript pointers in serialized APK entries.
 
 64-bit little-endian path-ID prefilter is not itself evidence of a pointer.
 All prefilter hits are rechecked as MonoBehaviour base fields where budget
@@ -21,17 +21,21 @@ NEEDLE = struct.pack('<q', TARGET_ID)
 MAX_FILE = 64 * 1024 * 1024
 MAX_TOTAL = 1024 * 1024 * 1024
 MAX_ENTRIES = 15000
-MAX_PARSE = 500
+MAX_PARSE = 1500
 MAX_SAMPLES = 24
 
 
-def needs_parser(data):
+def needs_parser(data, targets=None):
     version = struct.unpack_from('>I', data, 8)[0]
     # Older and big-endian serialized files do not match our 64-bit LE filter.
-    return version < 14 or len(data) <= 16 or data[16] != 0 or NEEDLE in data
+    needles = [struct.pack('<q', target) for target in (targets if targets is not None else (TARGET_ID,))]
+    return version < 14 or len(data) <= 16 or data[16] != 0 or any(needle in data for needle in needles)
 
 
-def inspect(path):
+def inspect(path, targets=None):
+    targets = {TARGET_ID: TARGET_NAME} if targets is None else targets
+    if not targets or any(k not in refs.TARGETS or refs.TARGETS[k] != v for k, v in targets.items()):
+        raise ValueError('Unknown MonoScript target')
     with zipfile.ZipFile(Path(path)) as apk:
         selected = [i for i in apk.infolist() if not i.is_dir() and i.filename.lower().startswith('assets/bin/data/')]
         all_infos = apk.infolist()
@@ -44,6 +48,7 @@ def inspect(path):
             raise ValueError('Premium script identities did not match prior observation')
         unique = sum(i.filename.rsplit('/', 1)[-1].lower() == scripts.ENTRY.rsplit('/', 1)[-1].lower() for i in all_infos) == 1
         totals = Counter()
+        script_counts = Counter()
         errors = Counter()
         results = []
         # Smaller serialized files first so a byte cap does not hide them behind
@@ -79,7 +84,7 @@ def inspect(path):
             totals['filesScanned'] += 1
             totals['bytesScanned'] += len(data)
             # Legacy and big-endian files bypass the little-endian prefilter.
-            if not needs_parser(data):
+            if not needs_parser(data, targets):
                 continue
             totals['rawCandidateFiles'] += 1
             if totals['filesParsed'] >= MAX_PARSE:
@@ -87,7 +92,7 @@ def inspect(path):
                 continue
             totals['filesParsed'] += 1
             try:
-                report = refs.inspect_bytes(data, info.filename, targets={TARGET_ID: TARGET_NAME}, basename_unique=unique, max_size=MAX_FILE)
+                report = refs.inspect_bytes(data, info.filename, targets=targets, basename_unique=unique, max_size=MAX_FILE)
             except Exception as exc:
                 errors['parse-' + type(exc).__name__] += 1
                 continue
@@ -98,6 +103,8 @@ def inspect(path):
                 errors['base-field-' + kind] += count
             for kind, count in report['candidateCounts'].items():
                 totals['references-' + kind] += count
+            for row in report['candidateScriptCounts']:
+                script_counts[(row['script'], row['resolution'])] += row['count']
             if report['samplesTruncated']:
                 totals['sampleTruncatedFiles'] += 1
             if report['samples']:
@@ -105,7 +112,10 @@ def inspect(path):
             if report['samples'] and len(results) < MAX_SAMPLES:
                 results.append({'entry': report['entry'], 'candidateCounts': report['candidateCounts'],
                                 'samplesTruncated': report['samplesTruncated'], 'samples': report['samples']})
-        return {'kind': 'worldbox-guid-script-references', 'target': TARGET_NAME, 'pathId': TARGET_ID,
+        return {'kind': 'worldbox-guid-script-references',
+                'targets': [{'pathId': k, 'script': v} for k, v in targets.items()],
+                'referenceScriptCounts': [{'script': script, 'resolution': resolution, 'count': count}
+                                          for (script, resolution), count in sorted(script_counts.items())],
                 'assetsEntries': len(selected), 'entryLimitReached': len(selected) > MAX_ENTRIES,
                 'basenameUnique': unique, 'totals': dict(totals), 'errors': dict(errors),
                 'resultFiles': results, 'resultSampleLimit': MAX_SAMPLES,
@@ -113,4 +123,7 @@ def inspect(path):
 
 
 if __name__ == '__main__':
-    print(json.dumps(inspect(Path(sys.argv[1])), separators=(',', ':')))
+    all_targets = len(sys.argv) == 3 and sys.argv[2] == '--all'
+    if len(sys.argv) not in (2, 3) or (len(sys.argv) == 3 and not all_targets):
+        raise SystemExit('usage: worldbox_guid_script_refs.py APK [--all]')
+    print(json.dumps(inspect(Path(sys.argv[1]), refs.TARGETS if all_targets else None), separators=(',', ':')))

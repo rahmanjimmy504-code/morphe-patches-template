@@ -165,6 +165,7 @@ jobs:
       - name: Analyze hash-gated serialized files
         env:
           WORLDBOX_GUID_SCRIPT_REFS: '1'
+          WORLDBOX_GUID_ALL: ${{ contains(github.event.head_commit.message, '[worldbox-guid-all]') && '1' || '0' }}
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   unity-bundle-inventory:

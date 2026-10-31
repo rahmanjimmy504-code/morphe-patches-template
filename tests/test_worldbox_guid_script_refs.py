@@ -55,6 +55,18 @@ class GuidRefsTest(unittest.TestCase):
         struct.pack_into('>I', no_needle, 8, 13)
         self.assertTrue(scan.needs_parser(no_needle))
 
+    def test_six_target_mode_detects_other_script(self):
+        with tempfile.TemporaryDirectory() as d, patch.object(scan.scripts, 'inspect_bytes', return_value=verified_fixture()):
+            report = scan.inspect(self.make_apk(d, fixture(script_id=640)), scan.refs.TARGETS)
+        self.assertEqual(report['totals']['filesParsed'], 1)
+        self.assertEqual(report['referenceScriptCounts'], [
+            {'script': 'TopPremiumButtonMover', 'resolution': 'external-basename-match', 'count': 1}])
+
+    def test_unknown_target_fails_closed(self):
+        with tempfile.TemporaryDirectory() as d:
+            with self.assertRaises(ValueError):
+                scan.inspect(self.make_apk(d, fixture()), {640: 'wrong-name'})
+
     def test_identity_mismatch_fails_closed(self):
         with tempfile.TemporaryDirectory() as d, patch.object(scan.scripts, 'inspect_bytes', return_value={'matchedIdentifiers': [], 'parseErrors': [], 'candidateLimitReached': False, 'oversizedCandidates': 0}):
             with self.assertRaises(ValueError): scan.inspect(self.make_apk(d, fixture()))

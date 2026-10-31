@@ -71,6 +71,7 @@ def inspect_bytes(data, owner, targets=TARGETS, basename_unique=True, max_size=M
     behaviours = [obj for obj in objects if obj.type.name == 'MonoBehaviour']
     errors = Counter()
     counts = Counter()
+    script_counts = Counter()
     matches = []
     for obj in behaviours[:MAX_BEHAVIOURS]:
         if obj.byte_start < asset.header.data_offset or obj.byte_size < 0 or obj.byte_start + obj.byte_size > len(data):
@@ -91,6 +92,7 @@ def inspect_bytes(data, owner, targets=TARGETS, basename_unique=True, max_size=M
             continue
         resolution = resolve(file_id, owner, asset.externals, TARGET_FILE, basename_unique)
         counts[resolution] += 1
+        script_counts[(targets[path_id], resolution)] += 1
         if len(matches) < MAX_SAMPLES:
             matches.append({'objectPathId': obj.path_id, 'scriptPathId': path_id,
                             'script': targets[path_id], 'fileId': file_id, 'resolution': resolution})
@@ -98,6 +100,8 @@ def inspect_bytes(data, owner, targets=TARGETS, basename_unique=True, max_size=M
             'objectCount': len(objects), 'monoBehaviourCount': len(behaviours),
             'behaviourLimitReached': len(behaviours) > MAX_BEHAVIOURS,
             'parseErrors': dict(errors), 'candidateCounts': dict(counts),
+            'candidateScriptCounts': [{'script': script, 'resolution': resolution, 'count': count}
+                                      for (script, resolution), count in sorted(script_counts.items())],
             'samplesTruncated': sum(counts.values()) > len(matches), 'samples': matches}
 
 
