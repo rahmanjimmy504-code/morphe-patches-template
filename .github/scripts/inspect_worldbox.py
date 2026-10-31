@@ -200,6 +200,20 @@ try:
                 for payload in payloads[1:]:
                     print('::warning title=WorldBox upstream example::' + payload)
             sys.exit(0)
+        if os.environ.get('WORLDBOX_RAW_CONTEXT') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 libil2cpp hash mismatch; refusing analysis.')
+            result = subprocess.run([sys.executable, '.github/scripts/worldbox_raw_context.py', str(native)],
+                                    capture_output=True, text=True, timeout=360, check=True)
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'arm64-raw-name-context':
+                raise RuntimeError('Unexpected raw-name context result.')
+            print('::warning title=WorldBox raw-name context::' + json.dumps(report, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_RAW_LEADS') == '1':
             if not native or not native.is_file() or not unity or not unity.is_file():
                 raise RuntimeError('Both ARM64 libil2cpp.so and libunity.so are required.')
