@@ -224,13 +224,14 @@ try:
             print('WorldBox extensionless Unity-reference report: ' + json.dumps(report, separators=(',', ':')))
             summary = {k: v for k, v in report.items() if k != 'resultFiles'}
             print('::warning title=WorldBox extensionless Unity reference summary::' + json.dumps(summary, separators=(',', ':')))
-            samples_left = 4
+            examples = []
             for file in report['resultFiles']:
-                for row in file['samples'][:samples_left]:
-                    print('::warning title=WorldBox extensionless Unity reference candidate::' + json.dumps({'entry': file['entry'], **row}, separators=(',', ':')))
-                samples_left = max(0, samples_left - len(file['samples']))
-            if samples_left == 0:
-                print('::warning title=WorldBox reference annotation limit::See full report in job log for any remaining samples.')
+                examples.extend({'entry': file['entry'], **row} for row in file['samples'])
+            # One bounded annotation preserves a useful cross-file sample even
+            # when Actions limits per-step annotations. Full report is in logs.
+            compact = {'examples': examples[:12], 'truncated': len(examples) > 12 or report['resultFilesTruncated']
+                       or any(f['samplesTruncated'] for f in report['resultFiles'])}
+            print('::warning title=WorldBox extensionless Unity reference candidates::' + json.dumps(compact, separators=(',', ':')))
             sys.exit(0)
         if os.environ.get('WORLDBOX_BUNDLE_INVENTORY') == '1':
             if not native or not native.is_file():
