@@ -15,6 +15,7 @@ import ghidra.program.model.data.ParameterDefinition;
 import ghidra.program.model.data.ParameterDefinitionImpl;
 import ghidra.program.model.data.PointerDataType;
 import ghidra.program.model.listing.Function;
+import ghidra.program.model.lang.Register;
 import ghidra.program.model.pcode.HighFunction;
 import ghidra.program.model.pcode.PcodeOp;
 import ghidra.program.model.pcode.PcodeOpAST;
@@ -128,6 +129,108 @@ public class WorldboxProbe extends GhidraScript {
         return result;
     }
 
+    // Reduce a conservative subset of high-pcode pointer expressions to an SP-relative
+    // offset. Unknown opcodes, differing phi inputs and non-SP roots are not guessed.
+    private Long stackOffset(Varnode node, int depth, Set<Varnode> seen) {
+        if (node == null || depth > 12 || !seen.add(node)) return null;
+        if (node.getAddress().isStackAddress()) return node.getOffset();
+        Register sp = currentProgram.getRegister("sp");
+        if (node.isInput() && node.isRegister() && sp != null && node.getAddress().equals(sp.getAddress())) return 0L;
+        PcodeOp def = node.getDef();
+        if (def == null) return null;
+        int opcode = def.getOpcode();
+        if ((opcode == PcodeOp.COPY || opcode == PcodeOp.CAST) && def.getNumInputs() == 1)
+            return stackOffset(def.getInput(0), depth + 1, seen);
+        if ((opcode == PcodeOp.PTRSUB || opcode == PcodeOp.INT_ADD) && def.getNumInputs() == 2 && def.getInput(1).isConstant()) {
+            Long base = stackOffset(def.getInput(0), depth + 1, seen);
+            if (base == null) return null;
+            Varnode constant = def.getInput(1);
+            int bits = Math.min(64, constant.getSize() * 8);
+            long delta = constant.getOffset();
+            if (bits < 64) delta = (delta << (64 - bits)) >> (64 - bits);
+            try { return Math.addExact(base, delta); } catch (ArithmeticException ex) { return null; }
+        }
+        if (opcode == PcodeOp.MULTIEQUAL && def.getNumInputs() > 0) {
+            Long same = null;
+            for (int i = 0; i < def.getNumInputs(); i++) {
+                Long value = stackOffset(def.getInput(i), depth + 1, new HashSet<>(seen));
+                if (value == null || (same != null && !same.equals(value))) return null;
+                same = value;
+            }
+            return same;
+        }
+        return null;
+    }
+
+    private Long stackOffset(Varnode node) {
+        return stackOffset(node, 0, new HashSet<>());
+    }
+
+    private boolean nearObject(long offset, long object) {
+        try {
+            long delta = Math.subtractExact(offset, object);
+            return delta >= 0 && delta < 64;
+        } catch (ArithmeticException ex) { return false; }
+    }
+
+    private Map<String, Object> stackEvidence(HighFunction high, Varnode argument, Address site) {
+        Map<String, Object> report = new LinkedHashMap<>();
+        Long object = stackOffset(argument);
+        report.put("stackAddressResolved", object != null);
+        report.put("ordering", "instruction-address-only");
+        List<Map<String, Object>> writes = new ArrayList<>();
+        List<Map<String, Object>> calls = new ArrayList<>();
+        int examined = 0;
+        boolean truncated = false;
+        if (object != null) {
+            Iterator<PcodeOpAST> ops = high.getPcodeOps();
+            while (ops.hasNext()) {
+                PcodeOpAST op = ops.next();
+                if (++examined > 8192) { truncated = true; break; }
+                Address pc = op.getSeqnum().getTarget();
+                if (pc.compareTo(site) >= 0) continue;
+                Long destination = null;
+                Varnode value = null;
+                if (op.getOpcode() == PcodeOp.STORE && op.getNumInputs() >= 3) {
+                    destination = stackOffset(op.getInput(1));
+                    value = op.getInput(2);
+                } else if (op.getOutput() != null && op.getOutput().getAddress().isStackAddress() && op.getNumInputs() >= 1) {
+                    destination = stackOffset(op.getOutput());
+                    value = op.getOutput();
+                }
+                if (destination != null && value != null && nearObject(destination, object)) {
+                    if (writes.size() >= 8) { truncated = true; continue; }
+                    Map<String, Object> write = new LinkedHashMap<>();
+                    write.put("relativeOffset", destination - object);
+                    write.put("width", value.getSize());
+                    Map<String, Object> source = traceArgument(value);
+                    source.remove("operationCounts");
+                    write.put("sourceGraph", source);
+                    writes.add(write);
+                }
+                if (op.getOpcode() == PcodeOp.CALL && op.getNumInputs() > 1) {
+                    for (int i = 1; i < op.getNumInputs(); i++) {
+                        Long argumentOffset = stackOffset(op.getInput(i));
+                        if (argumentOffset == null || !nearObject(argumentOffset, object)) continue;
+                        if (calls.size() >= 8) { truncated = true; break; }
+                        Map<String, Object> call = new LinkedHashMap<>();
+                        call.put("site", "0x" + Long.toHexString(pc.getOffset() - currentProgram.getImageBase().getOffset() + originalBase));
+                        long target = op.getInput(0).getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                        call.put("target", "0x" + Long.toHexString(target));
+                        call.put("argumentIndex", i - 1);
+                        call.put("relativeOffset", argumentOffset - object);
+                        calls.add(call);
+                    }
+                }
+            }
+        }
+        report.put("operationsExamined", examined);
+        report.put("truncated", truncated);
+        report.put("writes", writes);
+        report.put("calls", calls);
+        return report;
+    }
+
     private String json(Object value) {
         if (value == null) return "null";
         if (value instanceof Boolean || value instanceof Number) return value.toString();
@@ -195,6 +298,7 @@ public class WorldboxProbe extends GhidraScript {
                             if (op.getNumInputs() >= 2) {
                                 row.put("argumentAvailable", true);
                                 row.put("argumentGraph", traceArgument(op.getInput(1)));
+                                row.put("stackEvidence", stackEvidence(high, op.getInput(1), mapped(site)));
                             }
                             break;
                         }
@@ -212,7 +316,7 @@ public class WorldboxProbe extends GhidraScript {
         output.put("helperSignatureApplied", signatureApplied);
         output.put("forcedPrototype", true);
         output.put("sites", rows);
-        output.put("limitations", "Artificial helper prototype and bounded SSA ancestry do not establish stack contents, control-flow feasibility, metadata access, or runtime behavior.");
+        output.put("limitations", "Artificial helper prototype and address-ordered SSA evidence are heuristic; writes and calls may be infeasible or overwritten and do not prove actual stack contents, metadata access, or runtime behavior.");
         println("WB_GHIDRA_JSON:" + json(output));
     }
 }

@@ -124,6 +124,11 @@ def run_probe(headless, path, fixture=False):
                         not all(row.get('decompiled') and row.get('callFound') and row.get('argumentAvailable')
                                 for row in report['sites'])):
             raise RuntimeError('Ghidra synthetic fixture failed to recover the expected call and argument')
+        if fixture:
+            evidence = report['sites'][0].get('stackEvidence', {})
+            offsets = {row['relativeOffset'] for row in evidence.get('writes', [])}
+            if not evidence.get('stackAddressResolved') or not {0, 8}.issubset(offsets):
+                raise RuntimeError('Ghidra fixture failed to recover the expected stack-object writes: ' + json.dumps(evidence, separators=(',', ':')))
         return report
 
 

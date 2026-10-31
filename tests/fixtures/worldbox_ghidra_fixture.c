@@ -7,6 +7,10 @@ void *fixture_helper(void *value) {
 
 __attribute__((visibility("default"), noinline))
 void *fixture_caller(void *value) {
-    return fixture_helper(value);
+    void *object[3];
+    object[0] = value;
+    object[1] = 0;
+    object[2] = (void *) 1;
+    return fixture_helper(object);
 }
 /* Run requested. */

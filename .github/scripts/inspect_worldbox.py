@@ -100,7 +100,15 @@ try:
                 'callsFound': sum(bool(row.get('callFound')) for row in rows),
                 'limitation': report.get('limitations')}, separators=(',', ':')))
             for row in rows:
+                row = dict(row)
+                evidence = row.pop('stackEvidence', {})
+                writes, calls = evidence.pop('writes', []), evidence.pop('calls', [])
+                row['stackEvidenceSummary'] = dict(evidence, writeCount=len(writes), callCount=len(calls))
                 print('::warning title=WorldBox Ghidra site::' + json.dumps(row, separators=(',', ':')))
+                for kind, items in (('write', writes), ('call', calls)):
+                    for start in range(0, len(items), 4):
+                        payload = {'site': row['site'], 'kind': kind, 'items': items[start:start + 4]}
+                        print('::warning title=WorldBox Ghidra stack evidence::' + json.dumps(payload, separators=(',', ':')))
             sys.exit(0)
         if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
             if not native or not native.is_file():
