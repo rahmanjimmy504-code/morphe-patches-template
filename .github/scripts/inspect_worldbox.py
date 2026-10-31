@@ -200,6 +200,31 @@ try:
                 for payload in payloads[1:]:
                     print('::warning title=WorldBox upstream example::' + payload)
             sys.exit(0)
+        if os.environ.get('WORLDBOX_ASSET_LEADS') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 libil2cpp hash mismatch; refusing analysis.')
+            base = Path(td) / 'base.apk'
+            if not base.is_file():
+                raise RuntimeError('Base APK not found in the bundle.')
+            result = subprocess.run([sys.executable, '.github/scripts/worldbox_asset_leads.py', str(base)],
+                                    capture_output=True, text=True, timeout=360, check=True)
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-unity-asset-leads':
+                raise RuntimeError('Unexpected asset name-lead result.')
+            print('WorldBox Unity asset aggregate report: ' + json.dumps(report, separators=(',', ':')))
+            summary = {key: report[key] for key in ('baseApkSha256', 'eligibleEntries', 'entriesScanned',
+                       'eligibleBytes', 'scannedBytes', 'entriesLimitReached', 'truncated')}
+            hits = [row for row in report['results'] if row['matches']]
+            summary['entriesWithMatches'] = len(hits)
+            summary['exampleEntriesTruncated'] = len(hits) > 16
+            print('::warning title=WorldBox asset-name summary::' + json.dumps(summary, separators=(',', ':')))
+            for row in hits[:16]:
+                print('::warning title=WorldBox asset-name example::' + json.dumps(row, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_RAW_CONTEXT') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
