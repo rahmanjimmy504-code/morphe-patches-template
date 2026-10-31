@@ -17,6 +17,8 @@ import worldbox_native_scan as triage
 
 HELPER = 0x18eb1a0
 WORLD_SITES = (0x18a8b28, 0x18fad1c, 0x19021f0, 0x19022d0, 0x1902fa4)
+STRING_HELPER = 0x18914e8
+STRING_SITES = (0x18facdc, 0x19021d4, 0x19022b4)
 MARKER = 'WB_GHIDRA_JSON:'
 MAX_LOG_LINE = 100000
 
@@ -37,7 +39,7 @@ def marked_report(lines):
     return found[0]
 
 
-def targets(path, fixture=False):
+def targets(path, fixture=False, input_source=False):
     with Path(path).open('rb') as f:
         elf = ELFFile(f)
         if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
@@ -73,7 +75,7 @@ def targets(path, fixture=False):
             if len(sites) != 1:
                 raise ValueError('Synthetic fixture must contain exactly one direct helper call')
         else:
-            helper, sites = HELPER, WORLD_SITES
+            helper, sites = (STRING_HELPER, STRING_SITES) if input_source else (HELPER, WORLD_SITES)
         helper_frame = flow.frame_for_site(frames, starts, helper)
         if not helper_frame or helper_frame[0] != helper or helper_frame[1] - helper > flow.MAX_FUNCTION:
             raise ValueError('Helper unwind range missing or too large')
@@ -119,14 +121,16 @@ def valid_fixture_evidence(evidence):
     return evidence.get('stackAddressResolved') is True and {8, 16}.issubset(constant_offsets)
 
 
-def run_probe(headless, path, fixture=False):
-    plan = targets(path, fixture)
+def run_probe(headless, path, fixture=False, input_source=False):
+    plan = targets(path, fixture, input_source)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
     with tempfile.TemporaryDirectory(prefix='worldbox-ghidra-', dir=base) as td:
         args = [str(headless), td, 'worldbox', '-import', str(Path(path).resolve()), '-noanalysis',
-                '-scriptPath', str(scripts), '-postScript', 'WorldboxProbe.java',
-                hex(plan['imageBase']), hex(plan['helper']), str(plan['helperSize'])]
+                '-scriptPath', str(scripts), '-postScript', 'WorldboxProbe.java']
+        if input_source:
+            args.append('second-argument')
+        args += [hex(plan['imageBase']), hex(plan['helper']), str(plan['helperSize'])]
         args += [f"{item['entry']:x}:{item['size']:x}:{item['site']:x}" for item in plan['targets']]
         args += ['-deleteProject', '-max-cpu', '2']
         log_path = Path(td) / 'headless.log'
@@ -150,7 +154,12 @@ def run_probe(headless, path, fixture=False):
                         not all(row.get('decompiled') and row.get('callFound') and row.get('argumentAvailable')
                                 for row in report['sites'])):
             raise RuntimeError('Ghidra synthetic fixture failed to recover the expected call and argument')
-        if fixture:
+        if fixture and input_source:
+            row = report['sites'][0]
+            graph = row.get('argumentGraph', {})
+            if row.get('argumentIndex') != 1 or 'x0' not in graph.get('inputRegisters', []):
+                raise RuntimeError('Ghidra fixture failed to trace the second argument to the incoming x0: ' + json.dumps(row, separators=(',', ':')))
+        elif fixture:
             evidence = report['sites'][0].get('stackEvidence', {})
             if not valid_fixture_evidence(evidence):
                 raise RuntimeError('Ghidra fixture failed to recover the expected stack-object writes: ' + json.dumps(evidence, separators=(',', ':')))
@@ -162,9 +171,10 @@ def main():
     parser.add_argument('--headless', required=True)
     parser.add_argument('--binary', required=True)
     parser.add_argument('--fixture', action='store_true')
+    parser.add_argument('--input-source', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.input_source), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

@@ -92,6 +92,7 @@ public class WorldboxProbe extends GhidraScript {
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, Integer> opCounts = new TreeMap<>();
         Set<String> roots = new TreeSet<>();
+        Set<String> inputRegisters = new TreeSet<>();
         Set<String> stringCategories = new TreeSet<>();
         Set<Varnode> visited = new HashSet<>();
         Deque<Varnode> nodes = new ArrayDeque<>();
@@ -110,7 +111,16 @@ public class WorldboxProbe extends GhidraScript {
             else if (node.getAddress().isStackAddress()) roots.add("stack");
             else if (node.isAddress()) roots.add("address");
             else if (node.isUnique()) roots.add("temporary");
-            if (node.isInput()) roots.add("function-input");
+            if (node.isInput()) {
+                roots.add("function-input");
+                if (node.isRegister()) {
+                    Register register = currentProgram.getRegister(node.getAddress(), node.getSize());
+                    if (register != null) {
+                        String name = register.getName().toLowerCase(Locale.ROOT);
+                        if (name.matches("x[0-7]") || name.equals("sp")) inputRegisters.add(name);
+                    }
+                }
+            }
             PcodeOp def = node.getDef();
             if (def == null) continue;
             String op = def.getMnemonic();
@@ -125,6 +135,7 @@ public class WorldboxProbe extends GhidraScript {
         result.put("nodeLimitReached", !nodes.isEmpty());
         result.put("depthLimitReached", depthLimit);
         result.put("rootKinds", roots);
+        result.put("inputRegisters", inputRegisters);
         result.put("operationCounts", opCounts);
         result.put("stringCategories", stringCategories);
         return result;
@@ -344,6 +355,9 @@ public class WorldboxProbe extends GhidraScript {
     public void run() throws Exception {
         String[] args = getScriptArgs();
         if (args.length > 0 && args[0].equals("callees")) { inspectCallees(args); return; }
+        boolean sourceMode = args.length > 0 && args[0].equals("second-argument");
+        if (sourceMode) args = Arrays.copyOfRange(args, 1, args.length);
+        int focusArgument = sourceMode ? 1 : 0;
         if (args.length < 4) throw new IllegalArgumentException("expected image base, helper, size and call sites");
         originalBase = Long.decode(args[0]);
         long helperStart = Long.decode(args[1]);
@@ -366,6 +380,7 @@ public class WorldboxProbe extends GhidraScript {
             row.put("decompiled", false);
             row.put("callFound", false);
             row.put("argumentAvailable", false);
+            row.put("argumentIndex", focusArgument);
             try {
                 Function function = functions.get(start);
                 if (function == null) {
@@ -388,10 +403,11 @@ public class WorldboxProbe extends GhidraScript {
                             if (op.getOpcode() != PcodeOp.CALL || op.getNumInputs() < 1) continue;
                             if (op.getInput(0).getOffset() != mapped(helperStart).getOffset()) continue;
                             row.put("callFound", true);
-                            if (op.getNumInputs() >= 2) {
+                            if (op.getNumInputs() > 1 + focusArgument) {
                                 row.put("argumentAvailable", true);
-                                row.put("argumentGraph", traceArgument(op.getInput(1)));
-                                row.put("stackEvidence", stackEvidence(high, op.getInput(1), mapped(site), mapped(start), size));
+                                Varnode selectedArgument = op.getInput(1 + focusArgument);
+                                row.put("argumentGraph", traceArgument(selectedArgument));
+                                row.put("stackEvidence", stackEvidence(high, selectedArgument, mapped(site), mapped(start), size));
                             }
                             break;
                         }

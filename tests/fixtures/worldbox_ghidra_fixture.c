@@ -1,7 +1,7 @@
 /* Synthetic ARM64 fixture: no application code or external library required. */
 __attribute__((visibility("default"), noinline))
-void *fixture_helper(void *value) {
-    __asm__ volatile("" ::: "memory");
+void *fixture_helper(void *value, void *input) {
+    __asm__ volatile("" : : "r"(input) : "memory");
     return value;
 }
 
@@ -11,6 +11,6 @@ void *fixture_caller(void *value) {
     object[0] = value;
     object[1] = 0;
     object[2] = (void *) 1;
-    return fixture_helper(object);
+    return fixture_helper(object, value);
 }
 /* Run requested. */
