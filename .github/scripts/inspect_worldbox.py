@@ -76,6 +76,32 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            result = subprocess.run([sys.executable, '.github/scripts/worldbox_ghidra_probe.py',
+                                     '--headless', tool, '--binary', str(native)],
+                                    capture_output=True, text=True, timeout=1000)
+            if result.returncode:
+                raise RuntimeError('Bounded Ghidra probe failed: ' + result.stderr[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'ghidra-bounded-probe':
+                raise RuntimeError('Unexpected Ghidra probe result.')
+            rows = report.get('sites', [])
+            print('::warning title=WorldBox Ghidra summary::' + json.dumps({
+                'helperSignatureApplied': report.get('helperSignatureApplied'),
+                'forcedPrototype': report.get('forcedPrototype'),
+                'sites': len(rows), 'decompiled': sum(bool(row.get('decompiled')) for row in rows),
+                'callsFound': sum(bool(row.get('callFound')) for row in rows),
+                'limitation': report.get('limitations')}, separators=(',', ':')))
+            for row in rows:
+                print('::warning title=WorldBox Ghidra site::' + json.dumps(row, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
