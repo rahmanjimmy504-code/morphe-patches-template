@@ -72,6 +72,19 @@ class UpstreamTest(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, 'direct branch'):
                 upstream.trace_origin(path, 0x3080, 0x3004)
 
+    def test_trace_origin_exposes_tail_transfer_without_inventing_return(self):
+        data = fixture(eh_frame=True, origin_helper=True)
+        text = ELFFile(io.BytesIO(data)).get_section_by_name('.text')
+        tail = 0x14000000 | (((0x2000 - 0x3080) // 4) & 0x03ffffff)
+        struct.pack_into('<I', data, text['sh_offset'] + 0x80, tail)
+        with tempfile.TemporaryDirectory() as temp:
+            path = Path(temp) / 'fixture.so'
+            path.write_bytes(data)
+            result = upstream.trace_origin(path, 0x3080, 0x3000)
+        self.assertEqual(result['returns'], [])
+        self.assertEqual(result['tailTransfers'][0]['target'], '0x2000')
+        self.assertEqual(result['tailTransfers'][0]['x0'], ['entry-argument-0'])
+
     def test_origin_annotation_reserves_budget(self):
         item = {'target': '0x3000', 'examples': [{'site': hex(i * 4)} for i in range(8)]}
         report = {'kind': 'arm64-upstream-multi', 'reports': [item, dict(item, target='0x4000')],
