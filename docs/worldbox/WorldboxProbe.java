@@ -233,6 +233,14 @@ public class WorldboxProbe extends GhidraScript {
         return result;
     }
 
+    private Map<String, Object> compactTrace(Map<String, Object> graph) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        for (String key : Arrays.asList("rootKinds", "inputRegisters", "memoryAccessPath", "stringCategories", "operationCounts", "nodes", "nodeLimitReached", "depthLimitReached")) {
+            result.put(key, graph.get(key));
+        }
+        return result;
+    }
+
     // Reduce a conservative subset of high-pcode pointer expressions to an SP-relative
     // offset. Unknown opcodes, differing phi inputs and non-SP roots are not guessed.
     private Long stackOffset(Varnode node, int depth, Set<Varnode> seen) {
@@ -403,8 +411,9 @@ public class WorldboxProbe extends GhidraScript {
                 List<Map<String, Object>> returns = new ArrayList<>();
                 List<Map<String, Object>> stringArguments = new ArrayList<>();
                 List<Map<String, Object>> tracedTargetArguments = new ArrayList<>();
+                List<Map<String, Object>> indirectCalls = new ArrayList<>();
                 boolean truncated = false;
-                int examined = 0, directCallCount = 0, outsideFdeOperations = 0, callArgumentsExamined = 0;
+                int examined = 0, directCallCount = 0, indirectCallCount = 0, outsideFdeOperations = 0, callArgumentsExamined = 0;
                 Address fdeStart = mapped(start), fdeEnd = fdeStart.add(size);
                 Iterator<PcodeOpAST> ops = result.getHighFunction().getPcodeOps();
                 while (ops.hasNext()) {
@@ -447,6 +456,24 @@ public class WorldboxProbe extends GhidraScript {
                                 } else truncated = true;
                             }
                         }
+                    }
+                    if (op.getOpcode() == PcodeOp.CALLIND && op.getNumInputs() > 0) {
+                        indirectCallCount++;
+                        if (indirectCalls.size() < 16) {
+                            long site = op.getSeqnum().getTarget().getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                            Map<String, Object> evidence = new LinkedHashMap<>();
+                            evidence.put("site", "0x" + Long.toHexString(site));
+                            evidence.put("targetGraph", compactTrace(traceArgument(op.getInput(0))));
+                            List<Map<String, Object>> arguments = new ArrayList<>();
+                            for (int argument = 1; argument < op.getNumInputs() && argument <= 4; argument++) {
+                                Map<String, Object> arg = new LinkedHashMap<>();
+                                arg.put("index", argument - 1);
+                                arg.put("graph", compactTrace(traceArgument(op.getInput(argument))));
+                                arguments.add(arg);
+                            }
+                            evidence.put("arguments", arguments);
+                            indirectCalls.add(evidence);
+                        } else truncated = true;
                     }
                     if (op.getOpcode() == PcodeOp.CALL && op.getNumInputs() > 1) {
                         long target = op.getInput(0).getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
@@ -491,6 +518,8 @@ public class WorldboxProbe extends GhidraScript {
                 row.put("operationsExamined", examined);
                 row.put("outsideFdeOperations", outsideFdeOperations);
                 row.put("directCallCount", directCallCount);
+                row.put("indirectCallCount", indirectCallCount);
+                row.put("indirectCallEvidence", indirectCalls);
                 row.put("calls", calls);
                 row.put("returnGraphs", returns);
                 row.put("stringCategories", strings);

@@ -251,6 +251,8 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
 def compact_callee(row):
     """Keep calls and bounded return categories within one safe annotation."""
     row = dict(row)
+    row['indirectCallEvidenceCount'] = len(row.get('indirectCallEvidence', []))
+    row.pop('indirectCallEvidence', None)
     graphs = []
     for graph in row.get('returnGraphs', []):
         graphs.append({'roots': graph.get('rootKinds', []), 'strings': graph.get('stringCategories', []),

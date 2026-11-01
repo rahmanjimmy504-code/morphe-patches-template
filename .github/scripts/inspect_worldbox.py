@@ -127,6 +127,9 @@ try:
             from worldbox_ghidra_callees import compact_callee
             for row in report.get('functions', []):
                 print('::warning title=WorldBox libunity callback string xref::' + compact_callee(row))
+                for call in row.get('indirectCallEvidence', []):
+                    message = json.dumps({'function': row.get('entry'), **call}, separators=(',', ':'))
+                    print('::warning title=WorldBox libunity indirect-call dataflow::' + message.replace('%', '%25'))
             print('::warning title=WorldBox libunity Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1':
