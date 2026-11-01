@@ -47,6 +47,10 @@ def schema(root):
             'nodesVisited': seen, 'nodeLimitReached': bool(stack)}
 
 
+def _active_flag(value):
+    return bool(value) if isinstance(value, (bool, int)) and value in (0, 1) else None
+
+
 def _path_id(pointer):
     if not isinstance(pointer, dict):
         return None
@@ -107,6 +111,7 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
         values = game_object.read_typetree(check_read=False)
         raw_name = values.get('m_Name')
         name = raw_name if isinstance(raw_name, str) and SAFE_OBJECT_NAME.fullmatch(raw_name) else None
+        active_self = _active_flag(values.get('m_IsActive'))
         components = values.get('m_Component', [])
         if not isinstance(components, list):
             components = []
@@ -134,6 +139,7 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
             if type_name in ('Transform', 'RectTransform'):
                 transform = component
         hierarchy = [name] if name else []
+        active_states = [active_self]
         seen_transforms = set()
         hierarchy_truncated = False
         for level in range(MAX_HIERARCHY - 1):
@@ -161,10 +167,14 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
             parent_name = parent_go_values.get('m_Name')
             if isinstance(parent_name, str) and SAFE_OBJECT_NAME.fullmatch(parent_name):
                 hierarchy.append(parent_name)
+            active_states.append(_active_flag(parent_go_values.get('m_IsActive')))
             transform = parent_transform
             if level == MAX_HIERARCHY - 2:
                 hierarchy_truncated = True
-        return {'available': True, 'name': name, 'hierarchy': hierarchy,
+        active_in_hierarchy = (all(active_states) if active_states and
+                               all(state is not None for state in active_states) else None)
+        return {'available': True, 'name': name, 'activeSelf': active_self,
+                'activeInHierarchy': active_in_hierarchy, 'hierarchy': hierarchy,
                 'hierarchyTruncated': hierarchy_truncated,
                 'componentTypes': component_types[:MAX_COMPONENTS],
                 'componentScripts': component_scripts[:MAX_COMPONENTS],

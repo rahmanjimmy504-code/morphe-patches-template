@@ -37,9 +37,9 @@ class SchemaTest(unittest.TestCase):
     def test_bounded_game_object_hierarchy_context(self):
         ptr = lambda path_id: {'m_FileID': 0, 'm_PathID': path_id}
         objects = {
-            1: FakeUnityObject(1, 'GameObject', {'m_Name': 'Canvas',
+            1: FakeUnityObject(1, 'GameObject', {'m_Name': 'Canvas', 'm_IsActive': 1,
                 'm_Component': [{'component': ptr(11)}]}),
-            2: FakeUnityObject(2, 'GameObject', {'m_Name': 'PremiumWindow',
+            2: FakeUnityObject(2, 'GameObject', {'m_Name': 'PremiumWindow', 'm_IsActive': 1,
                 'm_Component': [{'component': ptr(12)}, {'component': ptr(13)}]}),
             11: FakeUnityObject(11, 'RectTransform', {'m_Father': ptr(0), 'm_GameObject': ptr(1)}),
             12: FakeUnityObject(12, 'RectTransform', {'m_Father': ptr(11), 'm_GameObject': ptr(2)}),
@@ -52,12 +52,18 @@ class SchemaTest(unittest.TestCase):
         context = probe.game_object_context(asset, 2, probe.refs.TARGET_FILE, asset)
         self.assertTrue(context['available'])
         self.assertEqual(context['name'], 'PremiumWindow')
+        self.assertTrue(context['activeSelf'])
+        self.assertTrue(context['activeInHierarchy'])
         self.assertEqual(context['hierarchy'], ['PremiumWindow', 'Canvas'])
         self.assertEqual(context['componentTypes'], ['RectTransform', 'MonoBehaviour'])
         self.assertEqual(context['componentScripts'], [{'index': 1, 'script': {
             'name': 'Button', 'className': 'Button', 'namespace': 'UnityEngine.UI',
             'assembly': 'UnityEngine.UI'}, 'storedSchema': {'available': False}}])
         self.assertFalse(context['hierarchyTruncated'])
+        objects[2].values['m_IsActive'] = 0
+        inactive = probe.game_object_context(asset, 2, probe.refs.TARGET_FILE, asset)
+        self.assertFalse(inactive['activeSelf'])
+        self.assertFalse(inactive['activeInHierarchy'])
 
     def test_stored_schema_and_safe_filter(self):
         root = node('root', 'MonoBehaviour', [node('isPremium', 'bool'),
