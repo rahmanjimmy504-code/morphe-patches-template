@@ -278,6 +278,8 @@ The user requested Ghidra, Hopper and IDA. Ghidra 11.4.3 was run in the existing
 
 This identifies a bounded JNI initialization entry, not a Premium method, entitlement check, decryption scheme or executed control flow. Ghidra's decompilation, import categorization and unwind ranges have the documented limitations; absent recognized strings do not prove absent metadata references. No patch or release was produced.
 
+The next bounded probe selected the instruction at `0x18d02c8` and its direct callee at `0x191c8c4`. [Run 41307490286](https://github.com/rahmanjimmy504-code/morphe-patches-template/actions/runs/41307490286) succeeded for the Ghidra job: the callee is a 12-byte unwind-bounded function, decompiled with two `COPY` operations and one `RETURN`, with no calls or recognized string categories. This did not reveal a billing or Premium lead. The overall workflow was not fully green because the separate REA Android-class job failed; that failure does not invalidate the completed Ghidra job.
+
 ### User-provided Decompiler.com listing: 2026-10-31
 
 The user supplied a [Decompiler.com listing for the named 0.51.4 APKM](https://www.decompiler.com/jar/59a381c3ad733302b6f207c38b5fec98/com.mkarpenko.worldbox_0.51.4-725_2arch_9d25ac0a0fd7216983c4b51028f9293f_apkmirror.com.apkm). The viewed listing contains Android Java/smali/resources and separately linked ABI APKs; the filename alone does not independently verify that its bytes match our hash-gated sample.
