@@ -43,7 +43,7 @@ def occurrence_offsets(data: bytes, text: str, limit: int = 8) -> list[int]:
     return _overlapping_offsets(data, text.encode("ascii"), limit)
 
 
-def candidate_string_heap_bases(data: bytes, texts: tuple[str, ...], min_support: int = 4, limit: int = 8) -> dict[str, object]:
+def candidate_string_heap_bases(data: bytes, texts: tuple[str, ...], min_support: int = 4) -> dict[str, int]:
     """Score aligned bases whose relative marker offsets recur as little-endian u32s.
 
     This deliberately does not claim to parse IL2CPP tables; false candidates
@@ -51,7 +51,8 @@ def candidate_string_heap_bases(data: bytes, texts: tuple[str, ...], min_support
     """
     offsets = sorted({offset for text in texts for offset in occurrence_offsets(data, text)})
     if len(offsets) < min_support:
-        return {"anchorCount": len(offsets), "candidateCount": 0, "top": []}
+        return {"anchorCount": len(offsets), "candidateCount": 0,
+                "maximumSupport": 0, "maximumSupportCandidateCount": 0}
     aligned_size = len(data) & ~3
     words = Counter(value for (value,) in struct.iter_unpack("<I", data[:aligned_size]) if value <= len(data))
     candidate_bases: set[int] = set()
@@ -60,15 +61,15 @@ def candidate_string_heap_bases(data: bytes, texts: tuple[str, ...], min_support
             base = offset - value
             if 0 < base < offset and base % 4 == 0:
                 candidate_bases.add(base)
-    scored = []
+    support_counts = []
     for base in candidate_bases:
-        per_anchor = [words.get(offset - base, 0) if offset > base else 0 for offset in offsets]
-        support = sum(count > 0 for count in per_anchor)
+        support = sum(offset > base and offset - base in words for offset in offsets)
         if support >= min_support:
-            scored.append({"base": base, "support": support, "wordHits": sum(per_anchor),
-                           "perAnchorHits": per_anchor})
-    ranked = sorted(scored, key=lambda row: (-row["support"], -row["wordHits"], row["base"]))
-    return {"anchorCount": len(offsets), "candidateCount": len(scored), "top": ranked[:limit]}
+            support_counts.append(support)
+    maximum_support = max(support_counts, default=0)
+    return {"anchorCount": len(offsets), "candidateCount": len(support_counts),
+            "maximumSupport": maximum_support,
+            "maximumSupportCandidateCount": sum(support == maximum_support for support in support_counts)}
 
 
 def count_string_leads(data: bytes) -> dict[str, dict[str, int]]:

@@ -772,7 +772,7 @@ try:
         premium_labels = ('premium_elements_checker', 'premium_window', 'premium_unlock_animation')
         candidate_bases = candidate_string_heap_bases(
             header, tuple(METADATA_NEEDLES[label] for label in premium_labels))
-        print('::notice title=WorldBox metadata candidate string bases::' + json.dumps(candidate_bases, separators=(',', ':')))
+        print('::notice title=WorldBox metadata exploratory base heuristic::' + json.dumps(candidate_bases, separators=(',', ':')))
         premium_contexts = {
             label: printable_run_contexts(header, METADATA_NEEDLES[label])
             for label in ('premium_elements_checker', 'premium_window', 'premium_unlock_animation')
