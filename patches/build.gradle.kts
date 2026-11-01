@@ -1,14 +1,13 @@
-group = "app.template"
+group = "app.worldboxresearch"
 
 patches {
-    // TODO: Update this section with your project details.
     about {
-        name = "UserXYZ Patches"
-        description = "Patches for apps I like"
-        source = "git@github.com:UserXYZ/morphe-patches.git"
-        author = "Awesome dev"
-        contact = "na"
-        website = "na"
+        name = "WorldBox 0.51.4 Patch Research"
+        description = "Research toward a WorldBox 0.51.4 Premium patch; no patch available yet"
+        source = "https://github.com/rahmanjimmy504-code/morphe-patches-template"
+        author = "rahmanjimmy504-code"
+        contact = "https://github.com/rahmanjimmy504-code/morphe-patches-template/issues"
+        website = "https://github.com/rahmanjimmy504-code/morphe-patches-template"
         license = "GPLv3"
     }
 }
