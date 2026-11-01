@@ -13,7 +13,7 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
         data = (
             b'UnityPurchasing\0UnityPurchasing\0'
             + 'IUnityCallback\0PremiumWindow\0'.encode('utf-16le')
-            + b'OnPurchaseSucceeded\0PremiumElementsChecker\0'
+            + b'OnPurchaseSucceeded\0PremiumElementsChecker\0clickPremium\0ButtonPremium\0'
         )
         result = metadata_counts.count_string_leads(data)
         self.assertEqual(result['unity_purchasing'], {'ascii': 2, 'utf16le': 0})
@@ -22,6 +22,8 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
         self.assertEqual(result['purchase_succeeded'], {'ascii': 1, 'utf16le': 0})
         self.assertEqual(result['premium_elements_checker'], {'ascii': 1, 'utf16le': 0})
         self.assertEqual(result['purchase_failed'], {'ascii': 0, 'utf16le': 0})
+        self.assertEqual(result['click_premium'], {'ascii': 1, 'utf16le': 0})
+        self.assertEqual(result['button_premium'], {'ascii': 1, 'utf16le': 0})
 
     def test_overlapping_occurrences(self):
         self.assertEqual(metadata_counts._overlapping_count(b'aaaa', b'aa'), 3)

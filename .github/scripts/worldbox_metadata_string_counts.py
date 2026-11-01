@@ -12,6 +12,13 @@ NEEDLES = {
     "premium_elements_checker": "PremiumElementsChecker",
     "premium_window": "PremiumWindow",
     "premium_unlock_animation": "PremiumUnlockAnimation",
+    "button_premium": "ButtonPremium",
+    "power_button": "PowerButton",
+    "button_util": "ButtonUtil",
+    "localized_text_price": "LocalizedTextPrice",
+    "click_premium": "clickPremium",
+    "click_close": "clickClose",
+    "click_hide": "clickHide",
 }
 
 

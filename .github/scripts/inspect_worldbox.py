@@ -765,6 +765,19 @@ try:
         header = metadata.read_bytes()
         raw_string_leads = count_string_leads(header)
         print('::notice title=WorldBox raw metadata string leads::' + json.dumps(raw_string_leads, separators=(',', ':')))
+        button_method_labels = ('button_premium', 'power_button', 'button_util',
+                                'localized_text_price', 'click_premium', 'click_close', 'click_hide')
+        button_method_offsets = {
+            label: occurrence_offsets(header, METADATA_NEEDLES[label]) for label in button_method_labels
+        }
+        print('::notice title=WorldBox Premium button metadata offsets::' +
+              json.dumps(button_method_offsets, separators=(',', ':')))
+        button_method_contexts = {
+            label: printable_run_contexts(header, METADATA_NEEDLES[label])
+            for label in ('click_premium', 'click_close', 'click_hide')
+        }
+        print('::notice title=WorldBox Premium button method contexts::' +
+              json.dumps(button_method_contexts, separators=(',', ':')))
         premium_offsets = {
             label: occurrence_offsets(header, METADATA_NEEDLES[label])
             for label in ('premium_elements_checker', 'premium_window', 'premium_unlock_animation')
