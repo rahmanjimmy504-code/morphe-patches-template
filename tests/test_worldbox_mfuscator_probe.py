@@ -30,6 +30,13 @@ class MfuscatorProbeTests(unittest.TestCase):
         self.assertFalse(probe.classify(1, text, 3)['metadataRecovered'])
         self.assertFalse(probe.classify(0, 'Using Plugin: Mfuscator Support\\nMetadata fixup function returned non-null result', 3)['metadataRecovered'])
         self.assertFalse(probe.classify(0, 'magic number check failed', 3)['metadataRecovered'])
+        failed_header = ('Using Plugin: Mfuscator Support\\n'
+                         'Metadata fixup function threw an exception: Failed to determine header size')
+        failure_report = probe.classify(255, failed_header, 0)
+        self.assertTrue(failure_report['mfuscatorPluginLoaded'])
+        self.assertFalse(failure_report['headerDecrypted'])
+        self.assertFalse(failure_report['fixupReturnedData'])
+        self.assertFalse(failure_report['metadataRecovered'])
 
     def test_runs_only_after_sample_hash_and_size_checks(self):
         with tempfile.TemporaryDirectory() as td:
