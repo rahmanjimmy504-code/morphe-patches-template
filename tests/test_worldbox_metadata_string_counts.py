@@ -27,7 +27,7 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
         self.assertEqual(metadata_counts._overlapping_count(b'aaaa', b'aa'), 3)
 
     def test_nearby_identifier_names_are_bounded_and_exclude_marker(self):
-        data = b'TypeBefore\0PremiumWindow\0HelperAfter\0' + b'Z' * 512
+        data = b'TypeBefore\0PremiumWindow\0HelperAfter\0' + b'\x01' * 512
         names = metadata_counts.nearby_identifier_runs(data, 'PremiumWindow', radius=64, limit=4)
         self.assertEqual(set(names), {'TypeBefore', 'HelperAfter'})
         self.assertNotIn('PremiumWindow', names)
