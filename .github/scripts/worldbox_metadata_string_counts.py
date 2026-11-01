@@ -71,8 +71,9 @@ def nearby_null_identifiers(data: bytes, text: str, radius: int = 4096, limit: i
             if end < 0:
                 break
             token = data[cursor:end]
-            if (token and len(token) <= 80 and marker not in token and
+            if (5 <= len(token) <= 80 and marker not in token and
                     all(0x21 <= byte <= 0x7e for byte in token) and
+                    any(chr(byte).isalpha() for byte in token) and
                     all(chr(byte).isalnum() or chr(byte) in "_.$`<>+-" for byte in token)):
                 distance = position - end if end <= position else cursor - (position + len(marker))
                 candidates.append((abs(distance), token.decode("ascii")))

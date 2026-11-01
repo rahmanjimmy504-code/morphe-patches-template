@@ -39,7 +39,7 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
         self.assertIn('PremiumWindow', context[0])
 
     def test_nearby_nul_identifiers_are_heuristic_and_exclude_marker(self):
-        data = b'TypeBefore\0PremiumWindow\0HelperAfter\0' + b'\0' * 256
+        data = b'\0'.join((b'$', b'+', b'a', b'TypeBefore', b'PremiumWindow', b'0', b'8', b'HelperAfter')) + b'\0' + b'\0' * 256
         names = metadata_counts.nearby_null_identifiers(data, 'PremiumWindow', radius=64, limit=4)
         self.assertEqual(set(names), {'TypeBefore', 'HelperAfter'})
         self.assertNotIn('PremiumWindow', names)
