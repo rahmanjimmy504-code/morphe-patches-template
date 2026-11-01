@@ -79,6 +79,10 @@ public class WorldboxProbe extends GhidraScript {
             if (end == 0) return null;
             String text = new String(bytes, 0, end, java.nio.charset.StandardCharsets.US_ASCII).toLowerCase(Locale.ROOT);
             if (text.startsWith("global-metadata.dat") || text.startsWith("metadata.dat")) return "metadata-name";
+            if (text.startsWith("unitypurchasing")) return "unity-purchasing-class";
+            if (text.startsWith("iunitycallback")) return "unity-callback-interface";
+            if (text.startsWith("onpurchasesucceeded") || text.startsWith("onpurchasefailed") ||
+                text.startsWith("onproductsretrieved") || text.startsWith("onsetupfailed")) return "purchase-callback-name";
             if (text.startsWith("assets/bin/data/")) return "unity-assets-path";
             if (text.startsWith("/proc/")) return "proc-path";
             if (text.equals("/dev/urandom") || text.equals("/dev/random")) return "system-random-device";

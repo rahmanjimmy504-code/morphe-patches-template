@@ -105,14 +105,20 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') }}
         run: python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --input-chain
       - name: Verify callee decompilation on the synthetic ARM64 fixture
-        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') || contains(github.event.head_commit.message, 'worldbox-ghidra-children') }}
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') || contains(github.event.head_commit.message, 'worldbox-ghidra-children') || contains(github.event.head_commit.message, 'worldbox-ghidra-unity') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
+      - name: Verify address-selected FDE decompilation on the synthetic ARM64 fixture
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-unity') }}
+        run: |
+          ADDRESS="$(PYTHONPATH=.github/scripts python -c 'import sys; from worldbox_ghidra_callees import jni_plan; print(hex(jni_plan(sys.argv[1], fixture=True)["functions"][0]["entry"]))' "$RUNNER_TEMP/worldbox-fixture.so")"
+          python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --address "$ADDRESS"
       - name: Verify JNI export selection on synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-jni') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --jni
       - name: Decompile bounded original ARM64 caller functions
         env:
           WORLDBOX_GHIDRA_JNI_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-jni') && '1' || '0' }}
+          WORLDBOX_GHIDRA_UNITY_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-unity') && '1' || '0' }}
           WORLDBOX_GHIDRA_CALLEE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') && '1' || '0' }}
           WORLDBOX_GHIDRA_ORIGIN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-origin') && '1' || '0' }}
           WORLDBOX_GHIDRA_TAIL_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-tail') && '1' || '0' }}

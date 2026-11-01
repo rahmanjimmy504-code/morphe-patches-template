@@ -105,6 +105,28 @@ try:
                 for bridge in dex.get('purchasingBridgeClasses', []):
                     for row in bridge.get('methods', []):
                         print('::warning title=WorldBox UnityPurchasing bridge method::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+        if os.environ.get('WORLDBOX_GHIDRA_UNITY_PROBE') == '1':
+            if not unity or not unity.is_file():
+                raise RuntimeError('ARM64 libunity.so not found in the bundle.')
+            with unity.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '8c04ad3b7d482cab925541cfe9839844c87732f7419aaaa71e170ccff916f082':
+                raise RuntimeError('ARM64 libunity.so hash does not match the observed 0.51.4 sample; refusing analysis.')
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(unity),
+                       '--address', '0x752efc', '--address', '0x7537ac']
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1000)
+            if result.returncode:
+                raise RuntimeError('Bounded libunity Ghidra probe failed: ' + (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'ghidra-callees-probe':
+                raise RuntimeError('Unexpected libunity Ghidra callee result.')
+            from worldbox_ghidra_callees import compact_callee
+            for row in report.get('functions', []):
+                print('::warning title=WorldBox libunity callback string xref::' + compact_callee(row))
+            print('::warning title=WorldBox libunity Ghidra limitations::' + report.get('limitations', ''))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')

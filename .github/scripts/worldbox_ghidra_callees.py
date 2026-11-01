@@ -108,7 +108,41 @@ def jni_plan(path, fixture=False):
         return plan
 
 
-def target_plan(path, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False):
+def address_plan(path, addresses):
+    """Select bounded executable functions containing supplied instruction addresses."""
+    addresses = sorted(set(addresses))
+    if not addresses:
+        raise ValueError('At least one instruction address is required')
+    with Path(path).open('rb') as handle:
+        elf = ELFFile(handle)
+        if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
+            raise ValueError('Expected little-endian ELF64 AArch64')
+        loads = [p['p_vaddr'] for p in elf.iter_segments() if p['p_type'] == 'PT_LOAD']
+        if not loads:
+            raise ValueError('ELF has no loadable segments')
+        sections = [s for s in elf.iter_sections() if s['sh_flags'] & 4 and s['sh_type'] != 'SHT_NOBITS']
+        dwarf = elf.get_dwarf_info()
+        if not dwarf.has_EH_CFI():
+            raise ValueError('No EH-frame unwind information')
+        frames = sorted((e['initial_location'], e['initial_location'] + e['address_range'])
+                        for e in dwarf.EH_CFI_entries() if isinstance(e, FDE) and e['address_range'])
+        starts = [lo for lo, _ in frames]
+        selected = {}
+        for address in addresses:
+            if not any(s['sh_addr'] <= address and address + 4 <= s['sh_addr'] + s['sh_size'] for s in sections):
+                raise ValueError(f'Instruction address {address:#x} is not executable')
+            frame = flow.frame_for_site(frames, starts, address)
+            if not frame or frame[1] - frame[0] > flow.MAX_FUNCTION:
+                raise ValueError(f'No bounded unwind range for instruction address {address:#x}')
+            if not any(s['sh_addr'] <= frame[0] and frame[1] <= s['sh_addr'] + s['sh_size'] for s in sections):
+                raise ValueError(f'Unwind range for {address:#x} is not executable')
+            selected.setdefault(frame[0], {'entry': frame[0], 'size': frame[1] - frame[0], 'anchors': []})['anchors'].append(address)
+        return {'imageBase': min(loads), 'functions': list(selected.values())}
+
+
+def target_plan(path, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None):
+    if addresses:
+        return address_plan(path, addresses)
     if jni:
         return jni_plan(path, fixture=fixture)
     if fixture:
@@ -152,8 +186,8 @@ def target_plan(path, fixture=False, origin=False, tail_origin=False, return_ori
         return {'imageBase': min(loads), 'functions': selected}
 
 
-def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False):
-    plan = target_plan(binary, fixture, origin, tail_origin, return_origin, input_origin, input_children, jni)
+def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None):
+    plan = target_plan(binary, fixture, origin, tail_origin, return_origin, input_origin, input_children, jni, addresses)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
     with tempfile.TemporaryDirectory(prefix='worldbox-ghidra-callees-', dir=base) as td:
@@ -176,6 +210,9 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
     rows = report.get('functions', [])
     if len(rows) != len(plan['functions']):
         raise RuntimeError('Ghidra did not report every planned function')
+    for row, planned in zip(rows, plan['functions']):
+        if planned.get('anchors'):
+            row['anchorSites'] = [hex(value) for value in planned['anchors']]
     with Path(binary).open('rb') as handle:
         elf = ELFFile(handle)
         imports = categorized_imports(elf)
@@ -236,6 +273,8 @@ def main():
     parser.add_argument('--headless', required=True)
     parser.add_argument('--binary', required=True)
     parser.add_argument('--fixture', action='store_true')
+    parser.add_argument('--address', action='append', type=lambda value: int(value, 0), default=[],
+                        help='decompile the bounded function containing this executable instruction address; repeatable')
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--origin', action='store_true')
     modes.add_argument('--tail-origin', action='store_true')
@@ -245,7 +284,7 @@ def main():
     modes.add_argument('--jni', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni, args.address), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

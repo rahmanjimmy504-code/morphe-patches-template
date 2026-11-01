@@ -72,6 +72,15 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertEqual(json.loads(compact)['returnGraphs'][0]['operations'], ['CALL'])
 
     @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
+    def test_selects_bounded_fde_for_instruction_addresses(self):
+        path = os.environ['WORLDBOX_TEST_FIXTURE']
+        entry = callees.jni_plan(path, fixture=True)['functions'][0]['entry']
+        plan = callees.address_plan(path, [entry, entry + 4])
+        self.assertEqual(len(plan['functions']), 1)
+        self.assertEqual(plan['functions'][0]['entry'], entry)
+        self.assertEqual(plan['functions'][0]['anchors'], [entry, entry + 4])
+
+    @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
     def test_selects_callee_fixture(self):
         plan = callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True)
         self.assertEqual(len(plan['functions']), 1)
