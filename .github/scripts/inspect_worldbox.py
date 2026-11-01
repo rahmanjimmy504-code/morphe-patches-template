@@ -815,6 +815,15 @@ try:
                        b'PremiumUnlockAnimation']
             found = ', '.join(f'{needle.decode()}={data.find(needle)}' for needle in needles)
             print(f'::notice title=WorldBox native markers::{lib.name}: {found}')
+            native_leads = count_string_leads(data)
+            selected_labels = ('button_premium', 'power_button', 'button_util',
+                               'localized_text_price', 'click_premium', 'click_close',
+                               'click_hide')
+            selected = {label: {**native_leads[label],
+                                'asciiOffsets': occurrence_offsets(data, METADATA_NEEDLES[label], limit=4)}
+                        for label in selected_labels}
+            print('::warning title=WorldBox Premium button native strings::' +
+                  json.dumps({'library': lib.name, 'markers': selected}, separators=(',', ':')))
             symbols = subprocess.run(['readelf', '-Ws', str(lib)], capture_output=True, text=True, check=True).stdout.splitlines()
             matches = [line.strip() for line in symbols if re.search(r'il2cpp_init|MetadataLoader|AES_decrypt|EVP_Decrypt|metadata', line, re.I)]
             for match in matches[:20]:
