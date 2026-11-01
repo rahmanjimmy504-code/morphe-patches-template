@@ -172,6 +172,25 @@ try:
             print('::warning title=WorldBox Il2CppDumper recovery probe::' +
                   json.dumps(report, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_INSPECTOR_REDUX_PROBE') == '1':
+            if not native or not metadata or not base_apk or not arm64_apk:
+                raise RuntimeError('Base APK, ARM64 split, native library, and metadata are required for Il2CppInspectorRedux analysis.')
+            output_root = Path(td) / 'inspector-redux-out'
+            temp_root = Path(td) / 'inspector-redux-work'
+            command = [sys.executable, '.github/scripts/worldbox_inspector_redux_probe.py',
+                       '--binary', os.environ.get('IL2CPP_INSPECTOR_REDUX_BIN', ''),
+                       '--release-archive', os.environ.get('IL2CPP_INSPECTOR_REDUX_ARCHIVE', ''),
+                       '--base-apk', str(base_apk), '--native', str(native), '--metadata', str(metadata),
+                       '--output-dir', str(output_root), '--temp-dir', str(temp_root)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1600)
+            if result.returncode:
+                raise RuntimeError('Il2CppInspectorRedux wrapper failed: ' + (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-il2cppinspector-redux-probe':
+                raise RuntimeError('Unexpected Il2CppInspectorRedux report.')
+            print('::warning title=WorldBox Il2CppInspectorRedux probe::' +
+                  json.dumps(report, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_ARMV7_PROBE') == '1':
             if not native_v7 or not native_v7.is_file():
                 raise RuntimeError('ARMv7 libil2cpp.so not found in the bundle.')
