@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 import re
 import subprocess
@@ -61,14 +62,18 @@ def run_cpp2il(binary, base_apk, arm64_apk, output_root, temp_dir):
     command = [str(binary), f'--game-path={merged}', '--skip-analysis',
                '--skip-method-dumps', '--skip-metadata-txts', '--disable-registration-prompts',
                f'--output-root={output_root}']
-    result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+    child_env = dict(os.environ)
+    child_env['NO_COLOR'] = 'true'
+    result = subprocess.run(command, capture_output=True, text=True, timeout=1200, env=child_env)
     dlls = sum(1 for path in output_root.rglob('*.dll') if path.is_file())
     combined_log = (result.stdout or '') + '\n' + (result.stderr or '')
     safe_lines = []
     for line in combined_log.splitlines():
         if not re.search(r'FAIL|ERROR|metadata|version|registration|exception|unsupported', line, re.I):
             continue
+        line = re.sub(r'\x1b\[[0-?]*[ -/]*[@-~]', '', line)
         line = line.replace(str(temp_dir), '<temp>').replace(str(output_root), '<output>')
+        line = re.sub(r'/tmp/[^\s]+', '<temp-path>', line)
         line = re.sub(r'\s+', ' ', line).strip()
         if line and len(line) <= 300:
             safe_lines.append(line)
