@@ -56,7 +56,7 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(context['componentTypes'], ['RectTransform', 'MonoBehaviour'])
         self.assertEqual(context['componentScripts'], [{'index': 1, 'script': {
             'name': 'Button', 'className': 'Button', 'namespace': 'UnityEngine.UI',
-            'assembly': 'UnityEngine.UI'}}])
+            'assembly': 'UnityEngine.UI'}, 'storedSchema': {'available': False}}])
         self.assertFalse(context['hierarchyTruncated'])
 
     def test_stored_schema_and_safe_filter(self):

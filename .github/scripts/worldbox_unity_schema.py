@@ -128,7 +128,9 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                 descriptor = _component_script(asset, component, owner, script_asset,
                                                basename_unique, script_cache)
                 if descriptor:
-                    component_scripts.append({'index': index, 'script': descriptor})
+                    stored_type_tree = getattr(getattr(component, 'serialized_type', None), 'node', None)
+                    component_scripts.append({'index': index, 'script': descriptor,
+                                              'storedSchema': schema(stored_type_tree)})
             if type_name in ('Transform', 'RectTransform'):
                 transform = component
         hierarchy = [name] if name else []
