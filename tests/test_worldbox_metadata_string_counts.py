@@ -36,8 +36,9 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
         for table_offset, (text, position) in enumerate(zip(texts, positions)):
             data[table_offset * 4:table_offset * 4 + 4] = (position - base).to_bytes(4, 'little')
             data[position:position + len(text)] = text.encode('ascii')
-        candidates = metadata_counts.candidate_string_heap_bases(bytes(data), texts, min_support=4)
-        self.assertIn({'base': base, 'support': 4}, candidates)
+        result = metadata_counts.candidate_string_heap_bases(bytes(data), texts, min_support=4)
+        self.assertEqual(result['anchorCount'], 4)
+        self.assertTrue(any(row['base'] == base and row['support'] == 4 for row in result['top']))
 
     def test_printable_contexts_are_bounded_and_contain_marker(self):
         data = b'\0Namespace.Type::PremiumWindow\0HelperAfter\0' + b'X' * 512
