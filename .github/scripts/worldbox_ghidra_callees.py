@@ -232,7 +232,7 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
                         call['importCategory'] = imports[target]
                 except (ValueError, KeyError):
                     call['verifiedDirect'] = False
-    if fixture and (not rows[0].get('decompiled') or
+    if fixture and 'expected' in plan and (not rows[0].get('decompiled') or
                     not any(call.get('target') == hex(plan['expected']) and call.get('verifiedDirect')
                             for call in rows[0].get('calls', []))):
         raise RuntimeError('Synthetic Ghidra callee probe failed to recover the expected direct call: ' +
