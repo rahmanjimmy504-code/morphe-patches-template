@@ -50,6 +50,8 @@ The expanded diagnostic ran on Android in [run 41108167630](https://github.com/r
 
 ### Resident-page experiment
 
+The `/proc` helper now also counts exact known bridge and Premium-script identifiers in ASCII and UTF-16LE (`UnityPurchasing`, `IUnityCallback`, purchase callbacks, and selected Premium script names). It reports counts per memory group only, with overlap handling for chunk-boundary matches; it never emits matched addresses or memory bytes. This is a lead search, not recovery of strings or proof of entitlement behavior. A new disposable-emulator run is pending.
+
 The helper also supports a `--resident` mode, first used in the following CI probe. It samples Linux `/proc/PID/pagemap` present bits, coalesces present pages, then applies the same two 2 GiB scan budgets. It reports mapped, resident-eligible, nonresident, swapped (a subset of nonresident), and unknown page-map bytes for each group; `selectedTruncated` means some selected or unknown pages were not covered, while `truncated` also reflects deliberately skipped nonresident pages. Earlier results used the name `residentTruncated`. Read errors and validation limits are reported separately. Pagemap examination is bounded, does not emit addresses or page contents, and failure to open it is an error rather than an empty successful scan.
 
 Present bits describe only a changing snapshot: skipped nonresident pages could contain relevant data, other threads can change memory, and header bytes across a skipped page boundary can be missed. The result is therefore not a complete scan or proof of absence. Local tests use synthetic sparse, resident, swapped, unknown, and chunk-boundary fixtures and verify resumption; they do not establish Android compatibility or identify Premium logic.

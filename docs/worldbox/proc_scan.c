@@ -18,6 +18,8 @@
 #include <fcntl.h>
 
 #define CHUNK (1024U * 1024U)
+#define MAX_NEEDLE_BYTES 32U
+#define MAX_STRING_OVERLAP (2U * MAX_NEEDLE_BYTES - 1U)
 #ifndef GROUP_BUDGET
 #define GROUP_BUDGET (UINT64_C(2) * 1024 * 1024 * 1024)
 #endif
@@ -32,7 +34,29 @@ typedef struct { uint64_t start, end; int priority; } Range;
 typedef struct {
     uint64_t eligible, attempted, bytes_read, ranges, read_errors, candidates, versions, checks;
     uint64_t mapped, nonresident, swapped, unknown;
+    uint64_t string_hits[8][2];
 } Stats;
+
+typedef struct { const char *label; const unsigned char *bytes; size_t length; } Needle;
+static const unsigned char N_UNITY_PURCHASING[] = "UnityPurchasing";
+static const unsigned char N_UNITY_CALLBACK[] = "IUnityCallback";
+static const unsigned char N_PURCHASE_SUCCEEDED[] = "OnPurchaseSucceeded";
+static const unsigned char N_PRODUCTS_RETRIEVED[] = "OnProductsRetrieved";
+static const unsigned char N_PURCHASE_FAILED[] = "OnPurchaseFailed";
+static const unsigned char N_PREMIUM_ELEMENTS[] = "PremiumElementsChecker";
+static const unsigned char N_PREMIUM_WINDOW[] = "PremiumWindow";
+static const unsigned char N_PREMIUM_UNLOCK[] = "PremiumUnlockAnimation";
+static const Needle NEEDLES[] = {
+    {"unity_purchasing", N_UNITY_PURCHASING, sizeof(N_UNITY_PURCHASING) - 1},
+    {"unity_callback", N_UNITY_CALLBACK, sizeof(N_UNITY_CALLBACK) - 1},
+    {"purchase_succeeded", N_PURCHASE_SUCCEEDED, sizeof(N_PURCHASE_SUCCEEDED) - 1},
+    {"products_retrieved", N_PRODUCTS_RETRIEVED, sizeof(N_PRODUCTS_RETRIEVED) - 1},
+    {"purchase_failed", N_PURCHASE_FAILED, sizeof(N_PURCHASE_FAILED) - 1},
+    {"premium_elements_checker", N_PREMIUM_ELEMENTS, sizeof(N_PREMIUM_ELEMENTS) - 1},
+    {"premium_window", N_PREMIUM_WINDOW, sizeof(N_PREMIUM_WINDOW) - 1},
+    {"premium_unlock_animation", N_PREMIUM_UNLOCK, sizeof(N_PREMIUM_UNLOCK) - 1},
+};
+#define NEEDLE_COUNT (sizeof(NEEDLES) / sizeof(NEEDLES[0]))
 
 static uint32_t u32le(const unsigned char *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
@@ -54,7 +78,29 @@ static int plausible(int fd, uint64_t pos, uint32_t *version) {
     return bounded == 14 && nonzero >= 4;
 }
 
-/* Keep three bytes between reads so magic crossing a chunk boundary is found. */
+/* Search known bridge/script identifiers only; counts are aggregate and no
+   addresses or candidate memory bytes are retained or emitted. */
+static void scan_strings(const unsigned char *data, size_t have, size_t carry, Stats *s) {
+    for (size_t n = 0; n < NEEDLE_COUNT; n++) {
+        const Needle *needle = &NEEDLES[n];
+        size_t wide_length = needle->length * 2;
+        for (size_t i = 0; i + needle->length <= have; i++) {
+            if (i + needle->length > carry &&
+                !memcmp(data + i, needle->bytes, needle->length))
+                s->string_hits[n][0]++;
+        }
+        for (size_t i = 0; i + wide_length <= have; i++) {
+            if (i + wide_length <= carry) continue;
+            size_t j = 0;
+            for (; j < needle->length; j++) {
+                if (data[i + 2 * j] != needle->bytes[j] || data[i + 2 * j + 1] != 0) break;
+            }
+            if (j == needle->length) s->string_hits[n][1]++;
+        }
+    }
+}
+
+/* Keep overlap for header signatures and exact ASCII/UTF-16LE string leads. */
 static void scan_range(int fd, unsigned char *buf, uint64_t start, uint64_t end, Stats *s) {
     size_t carry = 0;
     s->ranges++;
@@ -66,6 +112,7 @@ static void scan_range(int fd, unsigned char *buf, uint64_t start, uint64_t end,
         if (n > 0) {
             s->bytes_read += (uint64_t)n;
             size_t have = carry + (size_t)n;
+            scan_strings(buf, have, carry, s);
             for (size_t i = 0; i + 4 <= have; i++) {
                 if (u32le(buf + i) == 0xfab11bafU && s->checks < MAX_CHECKS) {
                     uint32_t version;
@@ -77,7 +124,7 @@ static void scan_range(int fd, unsigned char *buf, uint64_t start, uint64_t end,
                 }
             }
             if ((size_t)n == len) {
-                carry = have < 3 ? have : 3;
+                carry = have < MAX_STRING_OVERLAP ? have : MAX_STRING_OVERLAP;
                 memmove(buf, buf + have - carry, carry);
             } else {
                 s->read_errors++;
@@ -179,9 +226,15 @@ static void print_stats(const Stats *s) {
            ",\"pagemapUnknownBytes\":%" PRIu64 ",\"attemptedBytes\":%" PRIu64
            ",\"bytesRead\":%" PRIu64 ",\"rangesScanned\":%" PRIu64
            ",\"readErrors\":%" PRIu64 ",\"candidates\":%" PRIu64
-           ",\"validationChecks\":%" PRIu64 "}",
+           ",\"validationChecks\":%" PRIu64 ",\"stringHits\":{",
            s->mapped, s->eligible, s->nonresident, s->swapped, s->unknown,
            s->attempted, s->bytes_read, s->ranges, s->read_errors, s->candidates, s->checks);
+    for (size_t i = 0; i < NEEDLE_COUNT; i++) {
+        printf("%s\"%s_ascii\":%" PRIu64 ",\"%s_utf16le\":%" PRIu64,
+               i ? "," : "", NEEDLES[i].label, s->string_hits[i][0],
+               NEEDLES[i].label, s->string_hits[i][1]);
+    }
+    printf("}}");
 }
 
 int main(int argc, char **argv) {
@@ -218,7 +271,7 @@ int main(int argc, char **argv) {
     snprintf(path, sizeof(path), "/proc/%ld/mem", parsed);
     mem = open(path, O_RDONLY | O_CLOEXEC);
     if (mem < 0) { fprintf(stderr, "open memory: %s\n", strerror(errno)); goto done; }
-    buf = malloc(CHUNK + 3);
+    buf = malloc(CHUNK + MAX_STRING_OVERLAP);
     if (!buf) { fprintf(stderr, "allocation failed\n"); goto done; }
 
     char line[4096];

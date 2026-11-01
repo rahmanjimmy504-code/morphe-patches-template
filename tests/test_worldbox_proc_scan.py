@@ -16,6 +16,10 @@ for pos, version in ((1024 * 1024 - 1, 29), (1024 * 1024 + 128, 30)):
     m.seek(pos)
     m.write(struct.pack('<II', 0xfab11baf, version))
     m.write(b''.join(struct.pack('<I', i * 16) for i in range(2, 16)))
+m.seek(2 * 1024 * 1024 + 128)
+m.write(b'UnityPurchasing\0OnPurchaseSucceeded\0PremiumElementsChecker\0')
+m.seek(2 * 1024 * 1024 + 512)
+m.write('IUnityCallback\0PremiumWindow\0'.encode('utf-16le'))
 f = tempfile.TemporaryFile()
 f.write(struct.pack('<II', 0xfab11baf, 31))
 f.write(b''.join(struct.pack('<I', i * 16) for i in range(2, 16)))
@@ -51,6 +55,36 @@ class ProcScannerTest(unittest.TestCase):
                     return result
                 finally:
                     child.terminate()
+
+    def test_string_scanner_overlap_for_ascii_and_utf16le(self):
+        source = r"""
+#define main scanner_main
+#include "%s"
+#undef main
+#include <assert.h>
+int main(void) {
+    Stats stats = {0};
+    unsigned char ascii[64] = {0};
+    size_t split = 8, length = NEEDLES[0].length;
+    memcpy(ascii, NEEDLES[0].bytes, split);
+    memcpy(ascii + split, NEEDLES[0].bytes + split, length - split);
+    scan_strings(ascii, length, split, &stats);
+    assert(stats.string_hits[0][0] == 1 && stats.string_hits[0][1] == 0);
+    unsigned char wide[128] = {0};
+    for (size_t i = 0; i < length; i++) { wide[i * 2] = NEEDLES[0].bytes[i]; wide[i * 2 + 1] = 0; }
+    memset(stats.string_hits, 0, sizeof(stats.string_hits));
+    split = 17;
+    scan_strings(wide, length * 2, split, &stats);
+    assert(stats.string_hits[0][1] == 1 && stats.string_hits[0][0] == 0);
+    return 0;
+}
+""" % SOURCE
+        with tempfile.TemporaryDirectory() as directory:
+            harness = pathlib.Path(directory) / 'strings.c'
+            harness.write_text(source)
+            exe = pathlib.Path(directory) / 'strings'
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(harness), '-o', str(exe)], check=True)
+            subprocess.run([str(exe)], check=True)
 
     def test_priority_and_later_partial_window_selection(self):
         # Compile the production selector into a tiny synthetic harness.
@@ -90,6 +124,12 @@ int main(void) {
             self.assertLessEqual(stats['bytesRead'], stats['attemptedBytes'])
             self.assertLessEqual(stats['attemptedBytes'], stats['eligibleBytes'])
         self.assertEqual(result['candidates'], result['priority']['candidates'] + result['later']['candidates'])
+        hits = result['priority']['stringHits']
+        self.assertGreaterEqual(hits['unity_purchasing_ascii'], 1)
+        self.assertGreaterEqual(hits['purchase_succeeded_ascii'], 1)
+        self.assertGreaterEqual(hits['premium_elements_checker_ascii'], 1)
+        self.assertGreaterEqual(hits['unity_callback_utf16le'], 1)
+        self.assertGreaterEqual(hits['premium_window_utf16le'], 1)
         self.assertNotIn('bytes', result)
 
     def test_pagemap_present_swapped_and_unknown_accounting(self):
