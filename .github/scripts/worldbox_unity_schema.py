@@ -7,6 +7,7 @@ no game-specific field values, method bodies, or asset bytes are exported.
 import json
 import math
 from pathlib import Path
+import struct
 import re
 import sys
 import zipfile
@@ -27,6 +28,7 @@ SAFE_TYPE = re.compile(r'[A-Za-z_][A-Za-z0-9_.+<>\[\], *-]{0,127}\Z', re.ASCII)
 SAFE_OBJECT_NAME = re.compile(r'[A-Za-z0-9 _().+-]{1,128}\Z', re.ASCII)
 MAX_HIERARCHY = 8
 MAX_COMPONENTS = 32
+SAFE_SERIALIZED_STRING = re.compile(rb'[A-Za-z_][A-Za-z0-9_.,+` \[\]-]{2,127}\Z')
 
 
 def schema(root):
@@ -46,6 +48,27 @@ def schema(root):
     return {'available': True, 'topLevelCount': len(children), 'fields': fields,
             'fieldsTruncated': len(children) > len(fields),
             'nodesVisited': seen, 'nodeLimitReached': bool(stack)}
+
+
+def aligned_serialized_strings(data, limit=16):
+    """Extract only aligned length-prefixed ASCII identifiers from a bounded object payload."""
+    if not isinstance(data, bytes) or len(data) > 8192:
+        return []
+    found = set()
+    for offset in range(0, len(data) - 4, 4):
+        length = struct.unpack_from('<I', data, offset)[0]
+        if not 3 <= length <= 128:
+            continue
+        end = offset + 4 + length
+        padding = (-end) % 4
+        if end + padding > len(data) or any(data[end:end + padding]):
+            continue
+        value = data[offset + 4:end]
+        if SAFE_SERIALIZED_STRING.fullmatch(value):
+            found.add(value.decode('ascii'))
+            if len(found) >= limit:
+                break
+    return sorted(found)
 
 
 def _active_flag(value):
@@ -148,8 +171,16 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                                                basename_unique, script_cache)
                 if descriptor:
                     stored_type_tree = getattr(getattr(component, 'serialized_type', None), 'node', None)
-                    component_scripts.append({'index': index, 'script': descriptor,
-                                              'storedSchema': schema(stored_type_tree)})
+                    row = {'index': index, 'script': descriptor,
+                           'storedSchema': schema(stored_type_tree)}
+                    if descriptor['className'] in ('Button', 'ButtonPremium', 'ButtonUtil',
+                                                    'PowerButton', 'LocalizedTextPrice'):
+                        try:
+                            row['serializedStringCandidates'] = aligned_serialized_strings(
+                                component.get_raw_data())
+                        except Exception:
+                            row['serializedStringCandidates'] = []
+                    component_scripts.append(row)
             if type_name == 'CanvasGroup':
                 canvas_groups.append({'index': index, **_canvas_group_state(component)})
             if type_name in ('Transform', 'RectTransform'):
