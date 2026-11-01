@@ -119,8 +119,11 @@ jobs:
           echo "10429eb06f007a5e011f680e83109eca2a7a1cef4d946f37bf2adf439280f269  $archive" | sha256sum -c -
           mkdir -p "$RUNNER_TEMP/inspector-redux"
           unzip -q "$archive" -d "$RUNNER_TEMP/inspector-redux"
-          binary="$(find "$RUNNER_TEMP/inspector-redux" -type f -name 'Il2CppInspector.Redux.CLI' -perm /111 -print -quit)"
-          test -n "$binary"
+          binary="$(find "$RUNNER_TEMP/inspector-redux" -type f -name 'Il2CppInspector.Redux.CLI' -print -quit)"
+          if [ -z "$binary" ]; then
+            find "$RUNNER_TEMP/inspector-redux" -maxdepth 3 -type f -print
+            exit 1
+          fi
           chmod +x "$binary"
           "$binary" --version
           echo "IL2CPP_INSPECTOR_REDUX_BIN=$binary" >> "$GITHUB_ENV"
