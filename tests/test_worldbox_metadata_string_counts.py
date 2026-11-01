@@ -25,6 +25,8 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
 
     def test_overlapping_occurrences(self):
         self.assertEqual(metadata_counts._overlapping_count(b'aaaa', b'aa'), 3)
+        self.assertEqual(metadata_counts.occurrence_offsets(b'aa---aa', 'aa'), [0, 5])
+        self.assertEqual(metadata_counts.occurrence_offsets(b'aaaa', 'aa'), [0, 1, 2])
 
     def test_printable_contexts_are_bounded_and_contain_marker(self):
         data = b'\0Namespace.Type::PremiumWindow\0HelperAfter\0' + b'X' * 512

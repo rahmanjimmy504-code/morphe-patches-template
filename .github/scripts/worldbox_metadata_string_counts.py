@@ -12,6 +12,18 @@ NEEDLES = {
 }
 
 
+def _overlapping_offsets(data: bytes, needle: bytes, limit: int = 8) -> list[int]:
+    positions: list[int] = []
+    offset = 0
+    while len(positions) < limit:
+        position = data.find(needle, offset)
+        if position < 0:
+            break
+        positions.append(position)
+        offset = position + 1
+    return positions
+
+
 def _overlapping_count(data: bytes, needle: bytes) -> int:
     count = 0
     offset = 0
@@ -21,6 +33,11 @@ def _overlapping_count(data: bytes, needle: bytes) -> int:
             return count
         count += 1
         offset = position + 1
+
+
+def occurrence_offsets(data: bytes, text: str, limit: int = 8) -> list[int]:
+    """Return capped relative offsets for targeted exact ASCII markers."""
+    return _overlapping_offsets(data, text.encode("ascii"), limit)
 
 
 def count_string_leads(data: bytes) -> dict[str, dict[str, int]]:
