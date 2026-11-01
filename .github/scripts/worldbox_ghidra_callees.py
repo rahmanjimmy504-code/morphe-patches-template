@@ -186,7 +186,7 @@ def target_plan(path, fixture=False, origin=False, tail_origin=False, return_ori
         return {'imageBase': min(loads), 'functions': selected}
 
 
-def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None):
+def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None, expected_string_category=None):
     plan = target_plan(binary, fixture, origin, tail_origin, return_origin, input_origin, input_children, jni, addresses)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
@@ -237,6 +237,10 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
                             for call in rows[0].get('calls', []))):
         raise RuntimeError('Synthetic Ghidra callee probe failed to recover the expected direct call: ' +
                            json.dumps(rows[0], separators=(',', ':'))[:2800])
+    if fixture and expected_string_category and not any(
+            expected_string_category in item.get('stringCategories', [])
+            for row in rows for item in row.get('stringArgumentEvidence', [])):
+        raise RuntimeError('Synthetic Ghidra probe did not trace the expected string category to a call argument')
     return report
 
 
@@ -249,6 +253,9 @@ def compact_callee(row):
                        'operations': sorted(graph.get('operationCounts', {})), 'nodes': graph.get('nodes', 0),
                        'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))})
     row['returnGraphs'] = graphs
+    row['stringArgumentEvidence'] = [{key: item.get(key) for key in
+        ('site', 'operation', 'argumentIndex', 'stringCategories', 'rootKinds', 'operations', 'nodes', 'limited')}
+        for item in row.get('stringArgumentEvidence', [])]
     calls = []
     for call in row.get('calls', []):
         call = dict(call)
@@ -275,6 +282,8 @@ def main():
     parser.add_argument('--fixture', action='store_true')
     parser.add_argument('--address', action='append', type=lambda value: int(value, 0), default=[],
                         help='decompile the bounded function containing this executable instruction address; repeatable')
+    parser.add_argument('--expect-string-category',
+                        help='fixture-only assertion that a string category reaches a call argument')
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--origin', action='store_true')
     modes.add_argument('--tail-origin', action='store_true')
@@ -284,7 +293,7 @@ def main():
     modes.add_argument('--jni', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni, args.address), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni, args.address, args.expect_string_category), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

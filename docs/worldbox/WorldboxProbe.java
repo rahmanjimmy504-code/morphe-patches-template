@@ -149,6 +149,31 @@ public class WorldboxProbe extends GhidraScript {
         return null;
     }
 
+    private Long constantValue(Varnode node, int depth, Set<Varnode> seen) {
+        if (node == null || depth > MAX_DEPTH || !seen.add(node)) return null;
+        if (node.isConstant()) return node.getOffset();
+        PcodeOp def = node.getDef();
+        if (def == null) return null;
+        int opcode = def.getOpcode();
+        if ((opcode == PcodeOp.COPY || opcode == PcodeOp.CAST || opcode == PcodeOp.INT_ZEXT || opcode == PcodeOp.INT_SEXT) && def.getNumInputs() == 1)
+            return constantValue(def.getInput(0), depth + 1, seen);
+        if ((opcode == PcodeOp.INT_ADD || opcode == PcodeOp.PTRSUB) && def.getNumInputs() == 2) {
+            Long base = constantValue(def.getInput(0), depth + 1, new HashSet<>(seen));
+            Long offset = constantValue(def.getInput(1), depth + 1, new HashSet<>(seen));
+            if (base != null && offset != null) return base + offset;
+        }
+        if (opcode == PcodeOp.MULTIEQUAL && def.getNumInputs() > 0) {
+            Long same = null;
+            for (int i = 0; i < def.getNumInputs(); i++) {
+                Long value = constantValue(def.getInput(i), depth + 1, new HashSet<>(seen));
+                if (value == null || (same != null && !same.equals(value))) return null;
+                same = value;
+            }
+            return same;
+        }
+        return null;
+    }
+
     private Map<String, Object> traceArgument(Varnode root) {
         Map<String, Object> result = new LinkedHashMap<>();
         Map<String, Integer> opCounts = new TreeMap<>();
@@ -191,6 +216,11 @@ public class WorldboxProbe extends GhidraScript {
                 Varnode child = def.getInput(i);
                 if (child != null) { nodes.addLast(child); depths.addLast(depth + 1); }
             }
+        }
+        Long constantPointer = constantValue(root, 0, new HashSet<>());
+        if (constantPointer != null) {
+            String category = safeStringCategory(constantPointer);
+            if (category != null) stringCategories.add(category);
         }
         result.put("nodes", visited.size());
         result.put("nodeLimitReached", !nodes.isEmpty());
@@ -361,8 +391,9 @@ public class WorldboxProbe extends GhidraScript {
                 Set<String> strings = new TreeSet<>();
                 List<Map<String, Object>> calls = new ArrayList<>();
                 List<Map<String, Object>> returns = new ArrayList<>();
+                List<Map<String, Object>> stringArguments = new ArrayList<>();
                 boolean truncated = false;
-                int examined = 0, directCallCount = 0, outsideFdeOperations = 0;
+                int examined = 0, directCallCount = 0, outsideFdeOperations = 0, callArgumentsExamined = 0;
                 Address fdeStart = mapped(start), fdeEnd = fdeStart.add(size);
                 Iterator<PcodeOpAST> ops = result.getHighFunction().getPcodeOps();
                 while (ops.hasNext()) {
@@ -377,6 +408,29 @@ public class WorldboxProbe extends GhidraScript {
                         if (input != null && input.isConstant()) {
                             String cat = safeStringCategory(input.getOffset());
                             if (cat != null) strings.add(cat);
+                        }
+                    }
+                    if ((op.getOpcode() == PcodeOp.CALL || op.getOpcode() == PcodeOp.CALLIND) && op.getNumInputs() > 1) {
+                        long site = op.getSeqnum().getTarget().getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                        for (int argument = 1; argument < op.getNumInputs(); argument++) {
+                            if (callArgumentsExamined >= 128) { truncated = true; break; }
+                            callArgumentsExamined++;
+                            Map<String, Object> graph = traceArgument(op.getInput(argument));
+                            Object foundCategories = graph.get("stringCategories");
+                            if (foundCategories instanceof Set && ((Set<?>) foundCategories).contains("unity-purchasing-class")) {
+                                if (stringArguments.size() < 16) {
+                                    Map<String, Object> evidence = new LinkedHashMap<>();
+                                    evidence.put("site", "0x" + Long.toHexString(site));
+                                    evidence.put("operation", op.getMnemonic());
+                                    evidence.put("argumentIndex", argument - 1);
+                                    evidence.put("stringCategories", foundCategories);
+                                    evidence.put("rootKinds", graph.get("rootKinds"));
+                                    evidence.put("operations", graph.get("operationCounts"));
+                                    evidence.put("nodes", graph.get("nodes"));
+                                    evidence.put("limited", Boolean.TRUE.equals(graph.get("nodeLimitReached")) || Boolean.TRUE.equals(graph.get("depthLimitReached")));
+                                    stringArguments.add(evidence);
+                                } else truncated = true;
+                            }
                         }
                     }
                     if (op.getOpcode() == PcodeOp.CALL && op.getNumInputs() > 0) {
@@ -404,6 +458,8 @@ public class WorldboxProbe extends GhidraScript {
                 row.put("calls", calls);
                 row.put("returnGraphs", returns);
                 row.put("stringCategories", strings);
+                row.put("callArgumentsExamined", callArgumentsExamined);
+                row.put("stringArgumentEvidence", stringArguments);
                 row.put("truncated", truncated);
                 row.put("status", "completed");
             } catch (Exception ex) { row.put("status", "analysis-exception-" + ex.getClass().getSimpleName()); }

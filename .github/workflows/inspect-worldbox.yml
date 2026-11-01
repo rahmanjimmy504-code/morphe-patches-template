@@ -107,11 +107,12 @@ jobs:
       - name: Verify callee decompilation on the synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') || contains(github.event.head_commit.message, 'worldbox-ghidra-children') || contains(github.event.head_commit.message, 'worldbox-ghidra-unity') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
-      - name: Verify address-selected FDE decompilation on the synthetic ARM64 fixture
+      - name: Verify address-selected FDE and string-use tracing on synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-unity') }}
         run: |
-          ADDRESS="$(PYTHONPATH=.github/scripts python -c 'import sys; from worldbox_ghidra_callees import jni_plan; print(hex(jni_plan(sys.argv[1], fixture=True)["functions"][0]["entry"]))' "$RUNNER_TEMP/worldbox-fixture.so")"
-          python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --address "$ADDRESS"
+          FIXTURE="$RUNNER_TEMP/worldbox-fixture.so"
+          ADDRESS="$(PYTHONPATH=.github/scripts python -c 'import sys; from elftools.elf.elffile import ELFFile; elf=ELFFile(open(sys.argv[1], "rb")); sym=next(s for s in elf.get_section_by_name(".dynsym").iter_symbols() if s.name == "fixture_string_caller"); print(hex(sym["st_value"]))' "$FIXTURE")"
+          python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$FIXTURE" --fixture --address "$ADDRESS" --expect-string-category unity-purchasing-class
       - name: Verify JNI export selection on synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-jni') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --jni
