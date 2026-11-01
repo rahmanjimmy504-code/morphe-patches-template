@@ -55,3 +55,35 @@ def printable_run_contexts(data: bytes, text: str, limit: int = 4, radius: int =
             break
         position = data.find(marker, position + 1)
     return contexts
+
+
+def nearby_null_identifiers(data: bytes, text: str, radius: int = 4096, limit: int = 8) -> list[str]:
+    """Return a few nearby NUL-delimited identifier-like tokens, not their offsets."""
+    marker = text.encode("ascii")
+    candidates: list[tuple[int, str]] = []
+    position = data.find(marker)
+    while position >= 0:
+        low = max(0, position - radius)
+        high = min(len(data), position + len(marker) + radius)
+        cursor = data.rfind(b"\0", 0, low) + 1
+        while cursor < high:
+            end = data.find(b"\0", cursor, high)
+            if end < 0:
+                break
+            token = data[cursor:end]
+            if (token and len(token) <= 80 and marker not in token and
+                    all(0x21 <= byte <= 0x7e for byte in token) and
+                    all(chr(byte).isalnum() or chr(byte) in "_.$`<>+-" for byte in token)):
+                distance = position - end if end <= position else cursor - (position + len(marker))
+                candidates.append((abs(distance), token.decode("ascii")))
+            cursor = end + 1
+        position = data.find(marker, position + 1)
+    result: list[str] = []
+    seen: set[str] = set()
+    for _, token in sorted(candidates):
+        if token not in seen:
+            seen.add(token)
+            result.append(token)
+        if len(result) >= limit:
+            break
+    return result
