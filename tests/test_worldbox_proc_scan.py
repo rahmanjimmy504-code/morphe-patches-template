@@ -135,7 +135,7 @@ int main(void) {
         self.assertGreaterEqual(hits['premium_window_utf16le'], 1)
         anonymous_hits = result['priority']['memoryClassStringHits']['anonymous']
         self.assertGreaterEqual(anonymous_hits['unity_purchasing_ascii'], 1)
-        self.assertEqual(result['priority']['memoryClassStringHits']['fileBacked']['unity_purchasing_ascii'], 0)
+        self.assertEqual(result['priority']['memoryClassStringHits']['fileBacked'].get('unity_purchasing_ascii', 0), 0)
         self.assertNotIn('bytes', result)
 
     def test_pagemap_present_swapped_and_unknown_accounting(self):

@@ -226,9 +226,14 @@ static int resident_ranges(int pagemap, const Range *maps, size_t count, uint64_
 }
 
 static void print_string_hits(const uint64_t hits[8][2]) {
+    int first = 1;
     for (size_t i = 0; i < NEEDLE_COUNT; i++) {
-        printf("%s\"%s_ascii\":%" PRIu64 ",\"%s_utf16le\":%" PRIu64,
-               i ? "," : "", NEEDLES[i].label, hits[i][0], NEEDLES[i].label, hits[i][1]);
+        for (size_t encoding = 0; encoding < 2; encoding++) {
+            if (!hits[i][encoding]) continue;
+            printf("%s\"%s_%s\":%" PRIu64, first ? "" : ",", NEEDLES[i].label,
+                   encoding ? "utf16le" : "ascii", hits[i][encoding]);
+            first = 0;
+        }
     }
 }
 
