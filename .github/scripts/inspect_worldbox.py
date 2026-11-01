@@ -50,6 +50,7 @@ try:
         native = None
         metadata = None
         unity = None
+        apk_paths = []
         with zipfile.ZipFile(target) as bundle:
             apks = [n for n in bundle.namelist() if n.endswith('.apk')]
             if not apks:
@@ -59,6 +60,7 @@ try:
                 path = Path(td) / Path(name).name
                 with bundle.open(name) as src, path.open('wb') as dst:
                     shutil.copyfileobj(src, dst)
+                apk_paths.append(path)
                 with zipfile.ZipFile(path) as apk:
                     relevant = [n for n in apk.namelist() if n.endswith('libil2cpp.so') or n.endswith('global-metadata.dat') or n == 'lib/arm64-v8a/libunity.so']
                     for entry in relevant:
@@ -76,6 +78,24 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_DEX_CALLBACK_PROBE') == '1':
+            command = [sys.executable, '.github/scripts/worldbox_dex_callbacks.py', *map(str, apk_paths)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=300)
+            if result.returncode:
+                raise RuntimeError('DEX callback analysis failed: ' + (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-dex-callback-map':
+                raise RuntimeError('Unexpected DEX callback report.')
+            for dex in report.get('dexFiles', []):
+                header = {'apk': dex.get('apk'), 'dex': dex.get('dex'),
+                    'classesScanned': dex.get('classesScanned'),
+                    'callbackInterfaceFound': dex.get('callbackInterfaceFound'),
+                    'callbackMethods': dex.get('callbackMethods')}
+                print('::notice title=WorldBox DEX callback inventory::' + json.dumps(header, separators=(',', ':')).replace('%', '%25'))
+                for row in dex.get('callbackImplementers', []):
+                    print('::warning title=WorldBox DEX callback implementer::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+                for row in dex.get('focusedMethods', []):
+                    print('::warning title=WorldBox DEX purchase bridge reference::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
         if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')

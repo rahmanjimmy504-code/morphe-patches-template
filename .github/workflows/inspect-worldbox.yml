@@ -415,7 +415,9 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-      - run: python -m pip install requests
+      - run: python -m pip install requests 'androguard==4.1.3'
+      - name: Test DEX callback inventory against synthetic declarations
+        run: python tests/test_worldbox_dex_callbacks.py
       - name: Install pinned REA and verify JADX engine
         run: |
           npm install --prefix "$RUNNER_TEMP/rea" --ignore-scripts rea-agents@6.8.0
@@ -424,6 +426,7 @@ jobs:
       - name: Inspect WorldBox Android classes with REA
         env:
           WORLDBOX_REA_PROBE: '1'
+          WORLDBOX_DEX_CALLBACK_PROBE: '1'
         run: |
           export REA_JADX_MCP_JAR="$RUNNER_TEMP/jadx.jar"
           export WORLDBOX_REA_ENTRY="$RUNNER_TEMP/rea/node_modules/rea-agents/scripts/rea.mjs"
