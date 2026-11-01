@@ -135,6 +135,24 @@ try:
             print('::warning title=WorldBox ARM64 Cpp2IL metadata probe::' +
                   json.dumps(report, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_MFUSCATOR_PROBE') == '1':
+            if not native or not metadata or not base_apk or not arm64_apk:
+                raise RuntimeError('Base APK, ARM64 split, native library, and metadata are required for MFuscator analysis.')
+            output_root = Path(td) / 'bettercpp2il-out'
+            work_root = Path(os.environ.get('BETTER_CPP2IL_WORK_DIR', Path(td) / 'bettercpp2il-work'))
+            command = [sys.executable, '.github/scripts/worldbox_mfuscator_probe.py',
+                       '--binary', os.environ.get('BETTER_CPP2IL_DLL', ''),
+                       '--base-apk', str(base_apk), '--native', str(native), '--metadata', str(metadata),
+                       '--output-dir', str(output_root), '--work-dir', str(work_root)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1600)
+            if result.returncode:
+                raise RuntimeError('BetterCpp2IL MFuscator wrapper failed: ' + (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-bettercpp2il-mfuscator-probe':
+                raise RuntimeError('Unexpected BetterCpp2IL MFuscator report.')
+            print('::warning title=WorldBox BetterCpp2IL MFuscator probe::' +
+                  json.dumps(report, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_ARMV7_PROBE') == '1':
             if not native_v7 or not native_v7.is_file():
                 raise RuntimeError('ARMv7 libil2cpp.so not found in the bundle.')

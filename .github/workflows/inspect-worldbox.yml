@@ -13,6 +13,7 @@ on:
       - .github/scripts/worldbox_ghidra_callees.py
       - .github/scripts/worldbox_ghidra_armv7.py
       - .github/scripts/worldbox_cpp2il_probe.py
+      - .github/scripts/worldbox_mfuscator_probe.py
       - .github/scripts/worldbox_upstream.py
       - .github/scripts/worldbox_string_leads.py
       - .github/scripts/worldbox_metadata_string_counts.py
@@ -31,6 +32,7 @@ on:
       - tests/fixtures/worldbox_ghidra_armv7_fixture.c
       - tests/test_worldbox_ghidra.py
       - tests/test_worldbox_cpp2il_probe.py
+      - tests/test_worldbox_mfuscator_probe.py
       - tests/test_worldbox_upstream.py
       - tests/test_worldbox_string_leads.py
       - tests/test_worldbox_metadata_string_counts.py
@@ -56,7 +58,7 @@ permissions:
 jobs:
   inspect:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v7
       - name: Test synthetic metadata and triage fixtures
@@ -65,6 +67,7 @@ jobs:
           python3 tests/test_worldbox_triage.py
           python3 tests/test_worldbox_proc_scan.py
           python3 tests/test_worldbox_cpp2il_probe.py
+          python3 tests/test_worldbox_mfuscator_probe.py
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -76,6 +79,23 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, '[worldbox-cpp2il]') }}
         with:
           dotnet-version: '6.0.x'
+      - uses: actions/setup-dotnet@v5
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-mfus]') }}
+        with:
+          dotnet-version: '10.0.302'
+      - name: Build pinned BetterCpp2IL and MFuscator plugin
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-mfus]') }}
+        run: |
+          git clone --filter=blob:none --no-checkout https://github.com/smartfish67png/BetterCpp2IL.git "$RUNNER_TEMP/BetterCpp2IL"
+          git -C "$RUNNER_TEMP/BetterCpp2IL" checkout --detach 43850f644a1584a8ca700cab2f71f4b2462eb255
+          cd "$RUNNER_TEMP/BetterCpp2IL"
+          dotnet publish src/Cpp2IL/Cpp2IL.csproj --configuration Release --framework net10.0 --output "$RUNNER_TEMP/bettercpp2il" -p:PublishSingleFile=false -p:PublishTrimmed=false
+          dotnet build src/Cpp2IL.Plugin.Mfuscator/Cpp2IL.Plugin.Mfuscator.csproj --configuration Release --framework net10.0
+          mkdir -p "$RUNNER_TEMP/mfuscator-work/Plugins"
+          cp src/Cpp2IL.Plugin.Mfuscator/bin/Release/net10.0/Cpp2IL.Plugin.Mfuscator.dll "$RUNNER_TEMP/mfuscator-work/Plugins/"
+          test -f "$RUNNER_TEMP/bettercpp2il/Cpp2IL.dll"
+          echo "BETTER_CPP2IL_DLL=$RUNNER_TEMP/bettercpp2il/Cpp2IL.dll" >> "$GITHUB_ENV"
+          echo "BETTER_CPP2IL_WORK_DIR=$RUNNER_TEMP/mfuscator-work" >> "$GITHUB_ENV"
       - name: Download Cpp2IL 2022.0.7
         if: ${{ contains(github.event.head_commit.message, '[worldbox-cpp2il]') }}
         run: |
@@ -85,7 +105,9 @@ jobs:
       - name: Inspect WorldBox APKM
         env:
           WORLDBOX_CPP2IL_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-cpp2il]') && '1' || '0' }}
+          WORLDBOX_MFUSCATOR_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-mfus]') && '1' || '0' }}
           CPP2IL_BIN: ${{ runner.temp }}/Cpp2IL
+          BETTER_CPP2IL_DLL: ${{ runner.temp }}/bettercpp2il/Cpp2IL.dll
         run: python .github/scripts/inspect_worldbox.py
   # Requires a successful synthetic ARM64 decompilation before processing the game.
   ghidra-arm64-probe:
