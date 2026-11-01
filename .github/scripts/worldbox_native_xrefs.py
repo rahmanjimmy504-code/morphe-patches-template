@@ -113,6 +113,10 @@ SAFE_IMPORTS = triage.WATCHED | frozenset({
     'malloc', 'calloc', 'realloc', 'free', 'posix_memalign', 'aligned_alloc',
     'strlen', 'strnlen', 'strcpy', 'strncpy', 'strdup', 'strstr', 'strcmp', 'strncmp',
     'wcslen', 'wcstombs', 'mbstowcs', 'iconv', 'iconv_open', 'iconv_close',
+    'pthread_once', 'pthread_mutex_init', 'pthread_mutex_destroy', 'pthread_mutex_lock',
+    'pthread_mutex_unlock', 'pthread_key_create', 'pthread_getspecific', 'pthread_setspecific',
+    '__android_log_print', '__android_log_write', '__android_log_assert',
+    'JNI_GetDefaultJavaVMInitArgs', 'JNI_CreateJavaVM', 'JNI_GetCreatedJavaVMs',
     '__strlen_chk', '__memcpy_chk', '__memmove_chk', '__strcpy_chk', '__strncpy_chk',
     '_Znwm', '_Znam', '_ZdlPv', '_ZdaPv', '__cxa_allocate_exception', '__cxa_throw',
 })

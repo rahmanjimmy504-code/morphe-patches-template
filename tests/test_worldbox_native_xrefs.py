@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / '.github/scripts'))
 sys.path.insert(0, str(ROOT / 'tests'))
 import worldbox_native_xrefs as refs
+import worldbox_ghidra_callees as callees
 from test_worldbox_native import fixture
 
 
@@ -23,6 +24,13 @@ def tail(pc, target):
 
 
 class NativeXrefsTest(unittest.TestCase):
+    def test_safe_initialization_import_categories(self):
+        for name in ('pthread_once', 'pthread_mutex_lock', '__android_log_print',
+                     'JNI_GetDefaultJavaVMInitArgs', 'JNI_CreateJavaVM'):
+            with self.subTest(name=name):
+                self.assertEqual(callees.import_category(name), name)
+        self.assertEqual(callees.import_category('WorldBoxPremiumVerifier'), 'other-import')
+
     def test_tail_branch_forward_backward_and_not_bl(self):
         self.assertEqual(refs.direct_tail(tail(0x1000, 0x2000), 0x1000), 0x2000)
         self.assertEqual(refs.direct_tail(tail(0x3000, 0x2000), 0x3000), 0x2000)
