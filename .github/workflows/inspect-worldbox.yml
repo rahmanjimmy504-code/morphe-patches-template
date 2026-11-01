@@ -110,17 +110,17 @@ jobs:
       - uses: actions/setup-dotnet@v5
         if: ${{ contains(github.event.head_commit.message, '[worldbox-redux]') }}
         with:
-          dotnet-version: '9.0.x'
-      - name: Download pinned Il2CppInspectorRedux 2026.2
+          dotnet-version: '10.0.302'
+      - name: Download pinned Il2CppInspectorRedux Legacy CLI 2026.2
         if: ${{ contains(github.event.head_commit.message, '[worldbox-redux]') }}
         run: |
-          archive="$RUNNER_TEMP/Il2CppInspectorRedux.CLI-linux-x64.zip"
-          curl -fsSL --retry 3 -o "$archive" https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.CLI-linux-x64.zip
-          echo "10429eb06f007a5e011f680e83109eca2a7a1cef4d946f37bf2adf439280f269  $archive" | sha256sum -c -
-          echo "Verified Il2CppInspectorRedux 2026.2 CLI archive"
+          archive="$RUNNER_TEMP/Il2CppInspectorRedux.Legacy.CLI-linux-x64.zip"
+          curl -fsSL --retry 3 -o "$archive" https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.Legacy.CLI-linux-x64.zip
+          echo "3424bce647e3fcec72ebb4b3f2e5d2405501b64068cc3afb2244ae5fbc8c45e6  $archive" | sha256sum -c -
+          echo "Verified Il2CppInspectorRedux 2026.2 Legacy CLI archive"
           mkdir -p "$RUNNER_TEMP/inspector-redux"
           unzip -q "$archive" -d "$RUNNER_TEMP/inspector-redux"
-          binary="$(find "$RUNNER_TEMP/inspector-redux" -type f -name 'Il2CppInspector.Redux.CLI' -print -quit)"
+          binary="$(find "$RUNNER_TEMP/inspector-redux" -type f -name 'Il2CppInspector' -print -quit)"
           if [ -z "$binary" ]; then
             find "$RUNNER_TEMP/inspector-redux" -maxdepth 3 -type f -print
             exit 1

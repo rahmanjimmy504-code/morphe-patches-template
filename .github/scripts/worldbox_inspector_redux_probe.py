@@ -13,7 +13,7 @@ EXPECTED_BASE = 'ab7c6bab7d2233c26a9e18426aa58dd60fa0ae0ad9be6fa0b2a6673dd8f89c3
 EXPECTED_METADATA_BYTES = 12_878_248
 EXPECTED_ARM64_IL2CPP = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
 TOOL_RELEASE = '2026.2'
-TOOL_ASSET_SHA256 = '10429eb06f007a5e011f680e83109eca2a7a1cef4d946f37bf2adf439280f269'
+TOOL_ASSET_SHA256 = '3424bce647e3fcec72ebb4b3f2e5d2405501b64068cc3afb2244ae5fbc8c45e6'
 EXPECTED_METADATA_VERSION = 31
 
 
@@ -145,6 +145,7 @@ def run_probe(binary, release_archive, base_apk, native, metadata, output_dir, t
     return {
         'kind': 'worldbox-il2cppinspector-redux-probe',
         'tool': 'LukeFZ/Il2CppInspectorRedux',
+        'toolVariant': 'Legacy CLI',
         'toolRelease': TOOL_RELEASE,
         'toolAssetSha256': sha256(release_archive),
         'toolExecutableSha256': sha256(binary),
