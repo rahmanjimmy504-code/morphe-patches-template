@@ -54,8 +54,52 @@ def _path_id(pointer):
     return path_id if isinstance(path_id, int) and path_id > 0 else None
 
 
-def game_object_context(asset, game_object_path_id):
-    """Return bounded object names and component type labels for a known local owner."""
+def _script_descriptor(script_object):
+    try:
+        script = script_object.read()
+    except Exception:
+        return None
+    fields = {
+        'name': scripts.safe(getattr(script, 'm_Name', None), scripts.NAME),
+        'className': scripts.safe(getattr(script, 'm_ClassName', None), scripts.NAME),
+        'namespace': '' if getattr(script, 'm_Namespace', None) == '' else
+                     scripts.safe(getattr(script, 'm_Namespace', None), scripts.NAMESPACE),
+        'assembly': scripts.safe(getattr(script, 'm_AssemblyName', None), scripts.ASSEMBLY),
+    }
+    return fields if fields['name'] or fields['className'] else None
+
+
+def _component_script(asset, component, owner, script_asset, basename_unique, cache):
+    if owner is None:
+        return None
+    try:
+        base = refs.get_typetree_node(114, component.version)
+        values = component.read_typetree(nodes=base, check_read=False)
+        pointer = values.get('m_Script')
+        script_id = _path_id(pointer)
+        file_id = pointer.get('m_FileID') if isinstance(pointer, dict) else None
+        if script_id is None or not isinstance(file_id, int):
+            return None
+        if file_id == 0:
+            target_asset = asset
+        else:
+            resolution = refs.resolve(file_id, owner, asset.externals, refs.TARGET_FILE, basename_unique)
+            target_asset = script_asset if resolution == 'external-basename-match' else None
+        if target_asset is None:
+            return None
+        key = (id(target_asset), script_id)
+        if key not in cache:
+            script_object = target_asset.objects.get(script_id)
+            cache[key] = (_script_descriptor(script_object)
+                          if script_object is not None and script_object.type.name == 'MonoScript' else None)
+        return cache[key]
+    except Exception:
+        return None
+
+
+def game_object_context(asset, game_object_path_id, owner=None, script_asset=None,
+                        basename_unique=True, script_cache=None):
+    """Return bounded hierarchy and script labels for a known local owner."""
     game_object = asset.objects.get(game_object_path_id)
     if game_object is None or game_object.type.name != 'GameObject':
         return {'available': False}
@@ -67,8 +111,10 @@ def game_object_context(asset, game_object_path_id):
         if not isinstance(components, list):
             components = []
         component_types = []
+        component_scripts = []
         transform = None
-        for item in components[:MAX_COMPONENTS]:
+        script_cache = script_cache if script_cache is not None else {}
+        for index, item in enumerate(components[:MAX_COMPONENTS]):
             if not isinstance(item, dict):
                 continue
             component_id = _path_id(item.get('component', item))
@@ -78,6 +124,11 @@ def game_object_context(asset, game_object_path_id):
             type_name = component.type.name
             if isinstance(type_name, str) and SAFE_TYPE.fullmatch(type_name):
                 component_types.append(type_name)
+            if type_name == 'MonoBehaviour':
+                descriptor = _component_script(asset, component, owner, script_asset,
+                                               basename_unique, script_cache)
+                if descriptor:
+                    component_scripts.append({'index': index, 'script': descriptor})
             if type_name in ('Transform', 'RectTransform'):
                 transform = component
         hierarchy = [name] if name else []
@@ -114,12 +165,13 @@ def game_object_context(asset, game_object_path_id):
         return {'available': True, 'name': name, 'hierarchy': hierarchy,
                 'hierarchyTruncated': hierarchy_truncated,
                 'componentTypes': component_types[:MAX_COMPONENTS],
+                'componentScripts': component_scripts[:MAX_COMPONENTS],
                 'componentsTruncated': len(components) > MAX_COMPONENTS}
     except Exception:
         return {'available': False}
 
 
-def inspect_bytes(data, owner, expected, basename_unique=True):
+def inspect_bytes(data, owner, expected, basename_unique=True, script_asset=None, script_cache=None):
     if len(data) > MAX_FILE:
         raise ValueError('Serialized file exceeds size bound')
     env = UnityPy.load(data)
@@ -153,7 +205,9 @@ def inspect_bytes(data, owner, expected, basename_unique=True):
         rows.append({'objectPathId': path_id, 'scriptPathId': script_id,
                      'script': refs.TARGETS[script_id], 'scriptResolution': resolution,
                      'gameObjectFileId': go_file, 'gameObjectPathId': go_id,
-                     'ownerContext': game_object_context(asset, go_id) if go_file == 0 else {'available': False},
+                     'ownerContext': game_object_context(asset, go_id, owner, script_asset,
+                                                       basename_unique, script_cache)
+                                     if go_file == 0 else {'available': False},
                      'objectSize': obj.byte_size, 'schema': schema(node)})
     return {'entry': refs.safe_path(owner), 'unityVersion': asset.unity_version, 'objects': rows}
 
@@ -164,11 +218,18 @@ def inspect(path):
         target = [i for i in infos if i.filename == scripts.ENTRY]
         if len(target) != 1 or target[0].file_size > MAX_FILE:
             raise ValueError('Missing, duplicate or oversized MonoScript asset')
-        validated = scripts.inspect_bytes(apk.read(target[0]))
+        script_data = apk.read(target[0])
+        validated = scripts.inspect_bytes(script_data)
         observed = {x['pathId']: x['className'] for x in validated['matchedIdentifiers']}
         if observed != refs.TARGETS or validated['parseErrors'] or validated['candidateLimitReached'] or validated['oversizedCandidates']:
             raise ValueError('Premium script identities did not match prior observation')
+        script_env = UnityPy.load(script_data)
+        script_files = list(script_env.files.values())
+        if len(script_files) != 1 or not isinstance(script_files[0], SerializedFile):
+            raise ValueError('Expected one directly serialized MonoScript asset')
+        script_asset = script_files[0]
         unique = sum(i.filename.rsplit('/', 1)[-1].lower() == scripts.ENTRY.rsplit('/', 1)[-1].lower() for i in infos) == 1
+        script_cache = {}
         reports = []
         for name, expected in SPECS.items():
             matches = [i for i in infos if i.filename == name]
@@ -177,7 +238,8 @@ def inspect(path):
             data = apk.read(matches[0])
             if len(data) != matches[0].file_size:
                 raise ValueError('Short asset read')
-            reports.append(inspect_bytes(data, name, expected, basename_unique=unique))
+            reports.append(inspect_bytes(data, name, expected, basename_unique=unique,
+                                         script_asset=script_asset, script_cache=script_cache))
     return {'kind': 'worldbox-unity-schema-leads', 'unityPyVersion': UnityPy.__version__, 'files': reports}
 
 

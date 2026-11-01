@@ -3,6 +3,7 @@ from pathlib import Path
 import sys
 from types import SimpleNamespace
 import unittest
+from UnityPy.helpers.UnityVersion import UnityVersion
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / '.github/scripts'))
 import worldbox_unity_schema as probe
 from test_worldbox_unity_script_refs import fixture
@@ -17,14 +18,19 @@ class FakeUnityObject:
         self.path_id = path_id
         self.type = SimpleNamespace(name=type_name)
         self.values = values
+        self.version = UnityVersion.from_str('2021.3.0f1')
 
     def read_typetree(self, **kwargs):
         return self.values
 
+    def read(self):
+        return self.values
+
 
 class FakeAsset:
-    def __init__(self, objects):
+    def __init__(self, objects, externals=()):
         self.objects = objects
+        self.externals = externals
 
 
 class SchemaTest(unittest.TestCase):
@@ -37,13 +43,20 @@ class SchemaTest(unittest.TestCase):
                 'm_Component': [{'component': ptr(12)}, {'component': ptr(13)}]}),
             11: FakeUnityObject(11, 'RectTransform', {'m_Father': ptr(0), 'm_GameObject': ptr(1)}),
             12: FakeUnityObject(12, 'RectTransform', {'m_Father': ptr(11), 'm_GameObject': ptr(2)}),
-            13: FakeUnityObject(13, 'MonoBehaviour', {}),
+            13: FakeUnityObject(13, 'MonoBehaviour', {'m_Script': ptr(99)}),
+            99: FakeUnityObject(99, 'MonoScript', SimpleNamespace(
+                m_Name='Button', m_ClassName='Button', m_Namespace='UnityEngine.UI',
+                m_AssemblyName='UnityEngine.UI')),
         }
-        context = probe.game_object_context(FakeAsset(objects), 2)
+        asset = FakeAsset(objects)
+        context = probe.game_object_context(asset, 2, probe.refs.TARGET_FILE, asset)
         self.assertTrue(context['available'])
         self.assertEqual(context['name'], 'PremiumWindow')
         self.assertEqual(context['hierarchy'], ['PremiumWindow', 'Canvas'])
         self.assertEqual(context['componentTypes'], ['RectTransform', 'MonoBehaviour'])
+        self.assertEqual(context['componentScripts'], [{'index': 1, 'script': {
+            'name': 'Button', 'className': 'Button', 'namespace': 'UnityEngine.UI',
+            'assembly': 'UnityEngine.UI'}}])
         self.assertFalse(context['hierarchyTruncated'])
 
     def test_stored_schema_and_safe_filter(self):
