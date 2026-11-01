@@ -53,6 +53,8 @@ try:
         native_v7 = None
         metadata = None
         unity = None
+        base_apk = None
+        arm64_apk = None
         apk_paths = []
         with zipfile.ZipFile(target) as bundle:
             apks = [n for n in bundle.namelist() if n.endswith('.apk')]
@@ -64,6 +66,10 @@ try:
                 with bundle.open(name) as src, path.open('wb') as dst:
                     shutil.copyfileobj(src, dst)
                 apk_paths.append(path)
+                if Path(name).name == 'base.apk':
+                    base_apk = path
+                elif Path(name).name == 'split_config.arm64_v8a.apk':
+                    arm64_apk = path
                 with zipfile.ZipFile(path) as apk:
                     relevant = [n for n in apk.namelist() if n.endswith('libil2cpp.so') or n.endswith('global-metadata.dat') or n == 'lib/arm64-v8a/libunity.so']
                     for entry in relevant:
@@ -112,6 +118,23 @@ try:
                 for bridge in dex.get('purchasingBridgeClasses', []):
                     for row in bridge.get('methods', []):
                         print('::warning title=WorldBox UnityPurchasing bridge method::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+        if os.environ.get('WORLDBOX_CPP2IL_PROBE') == '1':
+            if not base_apk or not arm64_apk:
+                raise RuntimeError('Base APK and ARM64 split are required for Cpp2IL analysis.')
+            output_root = Path(td) / 'cpp2il-out'
+            command = [sys.executable, '.github/scripts/worldbox_cpp2il_probe.py',
+                       '--binary', os.environ.get('CPP2IL_BIN', ''),
+                       '--base-apk', str(base_apk), '--arm64-apk', str(arm64_apk),
+                       '--output-root', str(output_root), '--temp-dir', td]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1300)
+            if result.returncode:
+                raise RuntimeError('Cpp2IL wrapper failed: ' + (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-cpp2il-probe':
+                raise RuntimeError('Unexpected Cpp2IL result.')
+            print('::warning title=WorldBox ARM64 Cpp2IL metadata probe::' +
+                  json.dumps(report, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_ARMV7_PROBE') == '1':
             if not native_v7 or not native_v7.is_file():
                 raise RuntimeError('ARMv7 libil2cpp.so not found in the bundle.')
