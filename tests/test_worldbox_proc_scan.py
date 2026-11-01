@@ -98,7 +98,8 @@ int main(void) {
 int main(void) {
     assert(classify_mapping("/data/app/base.apk (deleted)") == MAP_APK);
     assert(classify_mapping("/data/app/lib/arm64/libil2cpp.so") == MAP_SHARED_OBJECT);
-    assert(classify_mapping("/data/app/lib/arm64/global-metadata.dat") == MAP_DATA_FILE);
+    assert(classify_mapping("/data/app/lib/arm64/global-metadata.dat") == MAP_GLOBAL_METADATA);
+    assert(classify_mapping("/data/app/files/metadata.dat") == MAP_DATA_FILE);
     assert(classify_mapping("/data/data/package/cache/blob") == MAP_OTHER_FILE);
     assert(classify_mapping("[stack]") == MAP_SPECIAL);
     assert(classify_mapping("/dev/zero (deleted)") == MAP_ANONYMOUS);
