@@ -76,9 +76,9 @@ int main(void) {
     memset(stats.string_hits, 0, sizeof(stats.string_hits));
     memset(stats.class_string_hits, 0, sizeof(stats.class_string_hits));
     split = 17;
-    scan_strings(wide, length * 2, split, MAP_FILE_BACKED, &stats);
+    scan_strings(wide, length * 2, split, MAP_SHARED_OBJECT, &stats);
     assert(stats.string_hits[0][1] == 1 && stats.string_hits[0][0] == 0);
-    assert(stats.class_string_hits[MAP_FILE_BACKED][0][1] == 1);
+    assert(stats.class_string_hits[MAP_SHARED_OBJECT][0][1] == 1);
     return 0;
 }
 """ % SOURCE
@@ -86,6 +86,28 @@ int main(void) {
             harness = pathlib.Path(directory) / 'strings.c'
             harness.write_text(source)
             exe = pathlib.Path(directory) / 'strings'
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(harness), '-o', str(exe)], check=True)
+            subprocess.run([str(exe)], check=True)
+
+    def test_mapping_classification_without_emitting_paths(self):
+        source = r"""
+#define main scanner_main
+#include "%s"
+#undef main
+#include <assert.h>
+int main(void) {
+    assert(classify_mapping("/data/app/base.apk (deleted)") == MAP_APK);
+    assert(classify_mapping("/data/app/lib/arm64/libil2cpp.so") == MAP_SHARED_OBJECT);
+    assert(classify_mapping("/data/data/package/cache/blob") == MAP_OTHER_FILE);
+    assert(classify_mapping("[stack]") == MAP_SPECIAL);
+    assert(classify_mapping("/dev/zero (deleted)") == MAP_ANONYMOUS);
+    return 0;
+}
+""" % SOURCE
+        with tempfile.TemporaryDirectory() as directory:
+            harness = pathlib.Path(directory) / 'mapping.c'
+            harness.write_text(source)
+            exe = pathlib.Path(directory) / 'mapping'
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(harness), '-o', str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
@@ -98,7 +120,7 @@ int main(void) {
 #include <assert.h>
 int main(void) {
     uint64_t start, end;
-    Range priority = {100, 1000, 1, MAP_ANONYMOUS}, later = {100, 1000, 0, MAP_FILE_BACKED};
+    Range priority = {100, 1000, 1, MAP_ANONYMOUS}, later = {100, 1000, 0, MAP_SHARED_OBJECT};
     assert(select_window(&priority, 0, 200, &start, &end) && start == 100 && end == 300);
     assert(!select_window(&priority, 1, 200, &start, &end));
     assert(!select_window(&later, 0, 200, &start, &end));
@@ -135,7 +157,7 @@ int main(void) {
         self.assertGreaterEqual(hits['premium_window_utf16le'], 1)
         anonymous_hits = result['priority']['memoryClassStringHits']['anonymous']
         self.assertGreaterEqual(anonymous_hits['unity_purchasing_ascii'], 1)
-        self.assertEqual(result['priority']['memoryClassStringHits']['fileBacked'].get('unity_purchasing_ascii', 0), 0)
+        self.assertEqual(result['priority']['memoryClassStringHits']['apk'].get('unity_purchasing_ascii', 0), 0)
         self.assertNotIn('bytes', result)
 
     def test_pagemap_present_swapped_and_unknown_accounting(self):

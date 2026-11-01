@@ -30,8 +30,8 @@
 #define MAX_PAGEMAP_PAGES (UINT64_C(20) * 1024 * 1024)
 #define MAX_CHECKS 100000U
 
-enum { MAP_ANONYMOUS, MAP_FILE_BACKED, MAP_SPECIAL, MAP_CLASS_COUNT };
-static const char *const MAP_CLASS_LABELS[MAP_CLASS_COUNT] = {"anonymous", "fileBacked", "special"};
+enum { MAP_ANONYMOUS, MAP_APK, MAP_SHARED_OBJECT, MAP_OTHER_FILE, MAP_SPECIAL, MAP_CLASS_COUNT };
+static const char *const MAP_CLASS_LABELS[MAP_CLASS_COUNT] = {"anonymous", "apk", "sharedObject", "otherFile", "special"};
 
 typedef struct { uint64_t start, end; int priority, map_class; } Range;
 typedef struct {
@@ -65,6 +65,16 @@ static const Needle NEEDLES[] = {
 static uint32_t u32le(const unsigned char *p) {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+static int classify_mapping(const char *name) {
+    if (*name == '[') return MAP_SPECIAL;
+    if (*name == '\0' || *name == '\n' || !strncmp(name, "/dev/zero", 9) ||
+        !strncmp(name, "/dev/ashmem", 11) || !strncmp(name, "/memfd:", 7))
+        return MAP_ANONYMOUS;
+    if (strstr(name, ".apk")) return MAP_APK;
+    if (strstr(name, ".so")) return MAP_SHARED_OBJECT;
+    return MAP_OTHER_FILE;
 }
 
 static int plausible(int fd, uint64_t pos, uint32_t *version) {
@@ -303,12 +313,9 @@ int main(int argc, char **argv) {
             permissions[0] != 'r' || end <= start) continue;
         const char *name = line + name_pos;
         while (*name == ' ' || *name == '\t') name++;
-        int special = *name == '[';
-        int anonymous = *name == '\0' || *name == '\n' || special ||
-                        !strncmp(name, "/dev/zero", 9) || !strncmp(name, "/dev/ashmem", 11) ||
-                        !strncmp(name, "/memfd:", 7);
+        int map_class = classify_mapping(name);
+        int anonymous = map_class == MAP_ANONYMOUS || map_class == MAP_SPECIAL;
         int priority = permissions[1] == 'w' && anonymous && end - start <= SMALL_RANGE;
-        int map_class = special ? MAP_SPECIAL : anonymous ? MAP_ANONYMOUS : MAP_FILE_BACKED;
         int g = priority ? 0 : 1;
         if (UINT64_MAX - group[g].eligible < end - start) {
             fprintf(stderr, "readable mapping size overflow\n"); goto done;
