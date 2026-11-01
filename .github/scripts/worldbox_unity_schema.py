@@ -50,11 +50,11 @@ def schema(root):
             'nodesVisited': seen, 'nodeLimitReached': bool(stack)}
 
 
-def aligned_serialized_strings(data, limit=16):
-    """Extract only aligned length-prefixed ASCII identifiers from a bounded object payload."""
+def aligned_serialized_string_locations(data, limit=16):
+    """Find aligned length-prefixed ASCII tokens in a bounded object payload."""
     if not isinstance(data, bytes) or len(data) > 8192:
         return []
-    found = set()
+    found = []
     for offset in range(0, len(data) - 4, 4):
         length = struct.unpack_from('<I', data, offset)[0]
         if not 3 <= length <= 128:
@@ -65,10 +65,14 @@ def aligned_serialized_strings(data, limit=16):
             continue
         value = data[offset + 4:end]
         if SAFE_SERIALIZED_STRING.fullmatch(value):
-            found.add(value.decode('ascii'))
+            found.append({'offset': offset, 'value': value.decode('ascii')})
             if len(found) >= limit:
                 break
-    return sorted(found)
+    return found
+
+
+def aligned_serialized_strings(data, limit=16):
+    return sorted({row['value'] for row in aligned_serialized_string_locations(data, limit)})
 
 
 def pptr_reference_offsets(data, target_path_id, limit=8):
@@ -194,10 +198,13 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                     if descriptor['className'] in ('Button', 'ButtonPremium', 'ButtonUtil',
                                                     'PowerButton', 'LocalizedTextPrice'):
                         try:
-                            row['serializedStringCandidates'] = aligned_serialized_strings(
-                                component.get_raw_data())
+                            payload = component.get_raw_data()
+                            locations = aligned_serialized_string_locations(payload)
+                            row['serializedStringCandidates'] = sorted({item['value'] for item in locations})
+                            row['serializedStringLocations'] = locations
                         except Exception:
                             row['serializedStringCandidates'] = []
+                            row['serializedStringLocations'] = []
                     component_scripts.append(row)
             component_targets.append({'index': index,
                                      'pathId': getattr(component, 'path_id', component_id),

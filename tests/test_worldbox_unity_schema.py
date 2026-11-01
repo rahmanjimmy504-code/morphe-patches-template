@@ -60,7 +60,7 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(context['componentScripts'], [{'index': 1, 'script': {
             'name': 'Button', 'className': 'Button', 'namespace': 'UnityEngine.UI',
             'assembly': 'UnityEngine.UI'}, 'storedSchema': {'available': False},
-            'serializedStringCandidates': []}])
+            'serializedStringCandidates': [], 'serializedStringLocations': []}])
         self.assertFalse(context['hierarchyTruncated'])
         objects[2].values['m_IsActive'] = 0
         inactive = probe.game_object_context(asset, 2, probe.refs.TARGET_FILE, asset)
@@ -77,6 +77,8 @@ class SchemaTest(unittest.TestCase):
         payload = len(value).to_bytes(4, 'little') + value
         payload += bytes((-len(payload)) % 4)
         self.assertEqual(probe.aligned_serialized_strings(payload), ['UnlockPremium'])
+        self.assertEqual(probe.aligned_serialized_string_locations(payload),
+                         [{'offset': 0, 'value': 'UnlockPremium'}])
         self.assertEqual(probe.aligned_serialized_strings(b'X' + payload), [])
 
     def test_canvas_group_state(self):
