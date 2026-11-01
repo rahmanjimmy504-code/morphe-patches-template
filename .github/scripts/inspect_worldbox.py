@@ -50,6 +50,7 @@ try:
             raise RuntimeError('Downloaded file is not the expected WorldBox 0.51.4 (725) APKM.')
         print('Downloaded expected-size bundle. SHA-256:', hashlib.file_digest(target.open('rb'), 'sha256').hexdigest())
         native = None
+        native_v7 = None
         metadata = None
         unity = None
         apk_paths = []
@@ -71,6 +72,10 @@ try:
                         if entry == 'lib/arm64-v8a/libil2cpp.so':
                             native = Path(td) / 'libil2cpp.so'
                             with apk.open(entry) as src, native.open('wb') as dst:
+                                shutil.copyfileobj(src, dst)
+                        elif entry == 'lib/armeabi-v7a/libil2cpp.so':
+                            native_v7 = Path(td) / 'libil2cpp-armv7.so'
+                            with apk.open(entry) as src, native_v7.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
                         elif entry == 'lib/arm64-v8a/libunity.so':
                             unity = Path(td) / 'libunity.so'
@@ -107,6 +112,23 @@ try:
                 for bridge in dex.get('purchasingBridgeClasses', []):
                     for row in bridge.get('methods', []):
                         print('::warning title=WorldBox UnityPurchasing bridge method::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+        if os.environ.get('WORLDBOX_GHIDRA_ARMV7_PROBE') == '1':
+            if not native_v7 or not native_v7.is_file():
+                raise RuntimeError('ARMv7 libil2cpp.so not found in the bundle.')
+            with native_v7.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1a8879d10d23b65c540ad5841882779fff06c9d60cf09f48fa79cf1428734052':
+                raise RuntimeError('ARMv7 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_armv7.py',
+                       '--headless', os.environ.get('GHIDRA_HEADLESS', ''), '--binary', str(native_v7)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=700)
+            if result.returncode:
+                raise RuntimeError('Bounded ARMv7 Ghidra probe failed: ' + (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-armv7-jni':
+                raise RuntimeError('Unexpected ARMv7 Ghidra JNI result.')
+            print('::warning title=WorldBox ARMv7 Ghidra JNI_OnLoad::' + json.dumps(report, separators=(',', ':')))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_UNITY_PROBE') == '1':
             if not unity or not unity.is_file():
                 raise RuntimeError('ARM64 libunity.so not found in the bundle.')

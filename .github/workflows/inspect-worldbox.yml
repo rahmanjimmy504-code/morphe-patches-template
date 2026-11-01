@@ -11,6 +11,7 @@ on:
       - .github/scripts/worldbox_native_xrefs.py
       - .github/scripts/worldbox_ghidra_probe.py
       - .github/scripts/worldbox_ghidra_callees.py
+      - .github/scripts/worldbox_ghidra_armv7.py
       - .github/scripts/worldbox_upstream.py
       - .github/scripts/worldbox_string_leads.py
       - .github/scripts/worldbox_metadata_string_counts.py
@@ -24,7 +25,9 @@ on:
       - .github/scripts/worldbox_guid_script_refs.py
       - .github/scripts/worldbox_unity_schema.py
       - docs/worldbox/WorldboxProbe.java
+      - docs/worldbox/WorldboxArmv7JniProbe.java
       - tests/fixtures/worldbox_ghidra_fixture.c
+      - tests/fixtures/worldbox_ghidra_armv7_fixture.c
       - tests/test_worldbox_ghidra.py
       - tests/test_worldbox_upstream.py
       - tests/test_worldbox_string_leads.py
@@ -100,6 +103,15 @@ jobs:
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang" -O0 -fPIC -fno-inline -fno-optimize-sibling-calls -fno-omit-frame-pointer -funwind-tables -nostdlib -shared -Wl,-Bsymbolic tests/fixtures/worldbox_ghidra_fixture.c -o "$RUNNER_TEMP/worldbox-fixture.so"
           WORLDBOX_TEST_FIXTURE="$RUNNER_TEMP/worldbox-fixture.so" python tests/test_worldbox_ghidra.py
           python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
+      - name: Verify ARMv7 JNI call probe on a synthetic fixture
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') }}
+        run: |
+          NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
+          if [ -z "$NDK" ] || [ ! -d "$NDK" ]; then
+            NDK="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
+          fi
+          "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/armv7a-linux-androideabi24-clang" -marm -O0 -fPIC -fno-inline -fno-optimize-sibling-calls -fno-omit-frame-pointer -funwind-tables -nostdlib -shared -Wl,-Bsymbolic tests/fixtures/worldbox_ghidra_armv7_fixture.c -o "$RUNNER_TEMP/worldbox-armv7-fixture.so"
+          python .github/scripts/worldbox_ghidra_armv7.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-armv7-fixture.so" --fixture
       - name: Verify second-argument provenance on the synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-source') }}
         run: python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --input-source
@@ -131,7 +143,8 @@ jobs:
           WORLDBOX_GHIDRA_CHILDREN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-children') && '1' || '0' }}
           WORLDBOX_GHIDRA_SOURCE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-source') && '1' || '0' }}
           WORLDBOX_GHIDRA_CHAIN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') && '1' || '0' }}
-          WORLDBOX_GHIDRA_PROBE: '1'
+          WORLDBOX_GHIDRA_ARMV7_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '1' || '0' }}
+          WORLDBOX_GHIDRA_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '0' || '1' }}
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   upstream-arm64-probe:
