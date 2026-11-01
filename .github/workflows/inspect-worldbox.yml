@@ -13,6 +13,7 @@ on:
       - .github/scripts/worldbox_ghidra_callees.py
       - .github/scripts/worldbox_upstream.py
       - .github/scripts/worldbox_string_leads.py
+      - .github/scripts/worldbox_metadata_string_counts.py
       - .github/scripts/worldbox_raw_leads.py
       - .github/scripts/worldbox_raw_context.py
       - .github/scripts/worldbox_asset_leads.py
@@ -27,6 +28,7 @@ on:
       - tests/test_worldbox_ghidra.py
       - tests/test_worldbox_upstream.py
       - tests/test_worldbox_string_leads.py
+      - tests/test_worldbox_metadata_string_counts.py
       - tests/test_worldbox_raw_leads.py
       - tests/test_worldbox_raw_context.py
       - tests/test_worldbox_asset_leads.py
