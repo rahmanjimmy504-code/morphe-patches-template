@@ -1,7 +1,5 @@
 """Count exact WorldBox bridge/Premium name leads in opaque metadata bytes."""
 
-import re
-
 NEEDLES = {
     "unity_purchasing": "UnityPurchasing",
     "unity_callback": "IUnityCallback",
@@ -36,35 +34,24 @@ def count_string_leads(data: bytes) -> dict[str, dict[str, int]]:
     }
 
 
-def nearby_identifier_runs(data: bytes, text: str, radius: int = 256, limit: int = 4) -> list[str]:
-    """Return a few nearby printable identifier-like runs as weak context.
-
-    This is a neighborhood heuristic only; proximity in the file is not a
-    metadata reference or semantic relationship. Raw bytes and offsets are
-    never returned.
-    """
+def printable_run_contexts(data: bytes, text: str, limit: int = 4, radius: int = 64) -> list[str]:
+    """Return bounded printable runs containing a target marker, without offsets."""
     marker = text.encode("ascii")
-    candidates: list[tuple[int, str]] = []
+    contexts: list[str] = []
+    seen: set[str] = set()
     position = data.find(marker)
     while position >= 0:
-        low = max(0, position - radius)
-        high = min(len(data), position + len(marker) + radius)
-        window = data[low:high]
-        for match in re.finditer(rb"[!-~]{3,80}", window):
-            token = match.group()
-            if marker in token or not all(chr(byte).isalnum() or chr(byte) in "_.$`<>+-" for byte in token):
-                continue
-            start = low + match.start()
-            end = low + match.end()
-            distance = min(abs(position - end), abs(start - (position + len(marker))))
-            candidates.append((distance, token.decode("ascii")))
-        position = data.find(marker, position + 1)
-    unique: list[tuple[int, str]] = []
-    seen: set[str] = set()
-    for distance, name in sorted(candidates):
-        if name not in seen:
-            seen.add(name)
-            unique.append((distance, name))
-        if len(unique) == limit:
+        start = position
+        while start > 0 and position - start < radius and 0x20 <= data[start - 1] <= 0x7e:
+            start -= 1
+        end = position + len(marker)
+        while end < len(data) and end - (position + len(marker)) < radius and 0x20 <= data[end] <= 0x7e:
+            end += 1
+        context = data[start:end].decode("ascii")
+        if context not in seen:
+            seen.add(context)
+            contexts.append(context)
+        if len(contexts) >= limit:
             break
-    return [name for _, name in unique]
+        position = data.find(marker, position + 1)
+    return contexts

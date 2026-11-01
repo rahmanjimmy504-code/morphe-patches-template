@@ -26,11 +26,17 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
     def test_overlapping_occurrences(self):
         self.assertEqual(metadata_counts._overlapping_count(b'aaaa', b'aa'), 3)
 
-    def test_nearby_identifier_names_are_bounded_and_exclude_marker(self):
-        data = b'TypeBefore\0PremiumWindow\0HelperAfter\0' + b'\x01' * 512
-        names = metadata_counts.nearby_identifier_runs(data, 'PremiumWindow', radius=64, limit=4)
-        self.assertEqual(set(names), {'TypeBefore', 'HelperAfter'})
-        self.assertNotIn('PremiumWindow', names)
+    def test_printable_contexts_are_bounded_and_contain_marker(self):
+        data = b'\0Namespace.Type::PremiumWindow\0HelperAfter\0' + b'X' * 512
+        contexts = metadata_counts.printable_run_contexts(data, 'PremiumWindow', radius=16, limit=4)
+        self.assertEqual(contexts, ['Namespace.Type::PremiumWindow'])
+
+    def test_printable_contexts_cap_length(self):
+        data = b'A' * 200 + b'PremiumWindow' + b'B' * 200
+        context = metadata_counts.printable_run_contexts(data, 'PremiumWindow', radius=64)
+        self.assertEqual(len(context), 1)
+        self.assertLessEqual(len(context[0]), 13 + 128)
+        self.assertIn('PremiumWindow', context[0])
 
 
 if __name__ == '__main__':

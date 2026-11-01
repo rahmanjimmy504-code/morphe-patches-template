@@ -17,7 +17,7 @@ import zipfile
 
 import requests
 
-from worldbox_metadata_string_counts import NEEDLES as METADATA_NEEDLES, count_string_leads, nearby_identifier_runs
+from worldbox_metadata_string_counts import NEEDLES as METADATA_NEEDLES, count_string_leads, printable_run_contexts
 
 PAGE = 'https://www.apkmirror.com/apk/mako-mako/worldbox-sandbox-god-simulator/worldbox-sandbox-god-sim-0-51-4-release/worldbox-sandbox-god-sim-0-51-4-android-apk-download/'
 session = requests.Session()
@@ -764,11 +764,11 @@ try:
         header = metadata.read_bytes()
         raw_string_leads = count_string_leads(header)
         print('::notice title=WorldBox raw metadata string leads::' + json.dumps(raw_string_leads, separators=(',', ':')))
-        premium_neighborhoods = {
-            label: nearby_identifier_runs(header, METADATA_NEEDLES[label])
+        premium_contexts = {
+            label: printable_run_contexts(header, METADATA_NEEDLES[label])
             for label in ('premium_elements_checker', 'premium_window', 'premium_unlock_animation')
         }
-        print('::notice title=WorldBox metadata string neighborhoods::' + json.dumps(premium_neighborhoods, separators=(',', ':')))
+        print('::notice title=WorldBox metadata printable contexts::' + json.dumps(premium_contexts, separators=(',', ':')))
         magic = b'\xaf\x1b\xb1\xfa'
         print('::notice title=WorldBox metadata::Header ' + header[:32].hex() + ' magic offset ' + str(header.find(magic)))
         sample = header[:min(len(header), 1024 * 1024)]
