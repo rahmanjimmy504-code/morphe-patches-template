@@ -91,6 +91,15 @@ def pptr_reference_offsets(data, target_path_id, limit=8):
     return offsets
 
 
+def method_tokens_after_local_pptr(data, target_path_id):
+    """Pair a local PPtr with a length-prefixed token 16 bytes after its start."""
+    locations = {row['offset']: row['value'] for row in aligned_serialized_string_locations(data)}
+    return [{'pptrOffset': offset, 'tokenOffset': offset + 16,
+             'candidateMethod': locations[offset + 16]}
+            for offset in pptr_reference_offsets(data, target_path_id)
+            if offset + 16 in locations]
+
+
 def _active_flag(value):
     return bool(value) if isinstance(value, (bool, int)) and value in (0, 1) else None
 
@@ -233,7 +242,8 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                     matches.append({'index': target['index'], 'pathId': target_id,
                                     'type': target['type'],
                                     'scriptClassName': target['scriptClassName'],
-                                    'offsets': offsets})
+                                    'offsets': offsets,
+                                    'methodTokens': method_tokens_after_local_pptr(raw, target_id)})
             button_pointer_candidates.append({'buttonIndex': button['index'],
                                               'buttonPathId': button['pathId'],
                                               'localPPtrMatches': matches})

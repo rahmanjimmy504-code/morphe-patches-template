@@ -72,6 +72,14 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(probe.pptr_reference_offsets(payload, 1700), [4])
         self.assertEqual(probe.pptr_reference_offsets(payload, 1701), [])
 
+    def test_method_token_after_local_pointer(self):
+        value = b'clickPremium'
+        payload = bytearray(struct.pack('<iqI', 0, 1700, 0))
+        payload += struct.pack('<I', len(value)) + value
+        payload += bytes((-len(payload)) % 4)
+        self.assertEqual(probe.method_tokens_after_local_pptr(bytes(payload), 1700), [
+            {'pptrOffset': 0, 'tokenOffset': 16, 'candidateMethod': 'clickPremium'}])
+
     def test_aligned_serialized_identifier_strings(self):
         value = b'UnlockPremium'
         payload = len(value).to_bytes(4, 'little') + value
