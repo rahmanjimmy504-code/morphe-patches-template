@@ -79,6 +79,13 @@ static int classify_mapping(const char *name) {
     return MAP_OTHER_FILE;
 }
 
+/* If the target exits after a successful scan, ESRCH means there is nothing
+   left to detach; retain the scan result but still fail other detach errors. */
+static int detach_exit_status(int scan_status, int detach_error) {
+    if (!detach_error || (detach_error == ESRCH && scan_status == 0)) return scan_status;
+    return 1;
+}
+
 static int plausible(int fd, uint64_t pos, uint32_t *version) {
     unsigned char h[64];
     if (pread(fd, h, sizeof(h), (off_t)pos) != (ssize_t)sizeof(h)) return 0;
@@ -385,8 +392,9 @@ done:
     if (pagemap >= 0) close(pagemap);
     if (maps) fclose(maps);
     if (attached && ptrace(PTRACE_DETACH, pid, NULL, NULL) == -1) {
-        fprintf(stderr, "ptrace detach failed: %s\n", strerror(errno));
-        exitcode = 1;
+        int detach_error = errno;
+        fprintf(stderr, "ptrace detach failed: %s\n", strerror(detach_error));
+        exitcode = detach_exit_status(exitcode, detach_error);
     }
     return exitcode;
 }

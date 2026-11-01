@@ -113,6 +113,27 @@ int main(void) {
             subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(harness), '-o', str(exe)], check=True)
             subprocess.run([str(exe)], check=True)
 
+    def test_exited_target_does_not_discard_completed_scan(self):
+        source = r"""
+#define main scanner_main
+#include "%s"
+#undef main
+#include <assert.h>
+int main(void) {
+    assert(detach_exit_status(0, 0) == 0);
+    assert(detach_exit_status(0, ESRCH) == 0);
+    assert(detach_exit_status(1, ESRCH) == 1);
+    assert(detach_exit_status(0, EPERM) == 1);
+    return 0;
+}
+""" % SOURCE
+        with tempfile.TemporaryDirectory() as directory:
+            harness = pathlib.Path(directory) / 'detach.c'
+            harness.write_text(source)
+            exe = pathlib.Path(directory) / 'detach'
+            subprocess.run(['cc', '-std=c11', '-Wall', '-Wextra', '-Werror', str(harness), '-o', str(exe)], check=True)
+            subprocess.run([str(exe)], check=True)
+
     def test_priority_and_later_partial_window_selection(self):
         # Compile the production selector into a tiny synthetic harness.
         source = r"""
