@@ -9,7 +9,16 @@ from capstone import Cs, CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN
 from elftools.elf.elffile import ELFFile
 import worldbox_native_xrefs as refs
 
-NEEDLES = {'metadata-name': (b'global-metadata.dat',), 'premium-keyword': (b'premium',)}
+NEEDLES = {
+    'metadata-name': (b'global-metadata.dat',),
+    'premium-keyword': (b'premium',),
+    'unity-purchasing-class': (b'UnityPurchasing',),
+    'unity-callback-interface': (b'IUnityCallback',),
+    'purchase-success-callback': (b'OnPurchaseSucceeded',),
+    'products-retrieved-callback': (b'OnProductsRetrieved',),
+    'purchase-failed-callback': (b'OnPurchaseFailed',),
+    'setup-failed-callback': (b'OnSetupFailed',),
+}
 MAX_DATA = 96 * 1024 * 1024
 MAX_EXEC = 96 * 1024 * 1024
 MAX_TARGETS = 32  # per category; counts continue even when references are capped
@@ -27,6 +36,7 @@ def matches(data, base):
     result = {k: [] for k in NEEDLES}
     for category, needles in NEEDLES.items():
         for needle in needles:
+            needle = needle.lower()
             pos = 0
             while True:
                 i = lower.find(needle, pos)

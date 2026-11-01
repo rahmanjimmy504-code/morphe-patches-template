@@ -21,6 +21,15 @@ class LeadTests(unittest.TestCase):
         rows = leads.matches(data, 0x5000)
         self.assertEqual(rows['premium-keyword'], [(0x5001, 0x5003), (0x5026, 0x5026)])
         self.assertEqual(rows['metadata-name'], [(0x5012, 0x5012)])
+        self.assertEqual(rows['unity-purchasing-class'], [])
+
+    def test_unity_callback_needles(self):
+        data = b'\0UnityPurchasing\0IUnityCallback\0OnPurchaseSucceeded\0OnProductsRetrieved\0OnPurchaseFailed\0OnSetupFailed\0'
+        rows = leads.matches(data, 0x1000)
+        for category in ('unity-purchasing-class', 'unity-callback-interface',
+                         'purchase-success-callback', 'products-retrieved-callback',
+                         'purchase-failed-callback', 'setup-failed-callback'):
+            self.assertEqual(len(rows[category]), 1, category)
 
     def test_long_and_unterminated_are_not_reported(self):
         self.assertEqual(leads.matches(b'a' * 600 + b'premium\0', 0)['premium-keyword'], [])
