@@ -366,12 +366,22 @@ public class WorldboxProbe extends GhidraScript {
     private void inspectCallees(String[] args) throws Exception {
         if (args.length < 3) throw new IllegalArgumentException("expected image base and bounded functions");
         originalBase = Long.decode(args[1]);
+        List<String[]> plannedFunctions = new ArrayList<>();
+        Set<Long> traceTargets = new HashSet<>();
+        for (int i = 2; i < args.length; i++) {
+            if (args[i].startsWith("trace=")) {
+                traceTargets.add(Long.decode(args[i].substring("trace=".length())));
+            } else {
+                String[] parts = args[i].split(":");
+                if (parts.length != 2) throw new IllegalArgumentException("bad callee format");
+                plannedFunctions.add(parts);
+            }
+        }
+        if (plannedFunctions.isEmpty()) throw new IllegalArgumentException("no bounded functions supplied");
         DecompInterface decompiler = boundedDecompiler();
         boolean opened = decompiler.openProgram(currentProgram);
         List<Map<String, Object>> functions = new ArrayList<>();
-        for (int i = 2; i < args.length; i++) {
-            String[] parts = args[i].split(":");
-            if (parts.length != 2) throw new IllegalArgumentException("bad callee format");
+        for (String[] parts : plannedFunctions) {
             long start = Long.parseUnsignedLong(parts[0], 16);
             long size = Long.parseUnsignedLong(parts[1], 16);
             Map<String, Object> row = new LinkedHashMap<>();
@@ -392,6 +402,7 @@ public class WorldboxProbe extends GhidraScript {
                 List<Map<String, Object>> calls = new ArrayList<>();
                 List<Map<String, Object>> returns = new ArrayList<>();
                 List<Map<String, Object>> stringArguments = new ArrayList<>();
+                List<Map<String, Object>> tracedTargetArguments = new ArrayList<>();
                 boolean truncated = false;
                 int examined = 0, directCallCount = 0, outsideFdeOperations = 0, callArgumentsExamined = 0;
                 Address fdeStart = mapped(start), fdeEnd = fdeStart.add(size);
@@ -437,6 +448,27 @@ public class WorldboxProbe extends GhidraScript {
                             }
                         }
                     }
+                    if (op.getOpcode() == PcodeOp.CALL && op.getNumInputs() > 1) {
+                        long target = op.getInput(0).getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                        if (traceTargets.contains(target)) {
+                            long site = op.getSeqnum().getTarget().getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                            for (int argument = 1; argument < op.getNumInputs(); argument++) {
+                                Map<String, Object> graph = traceArgument(op.getInput(argument));
+                                Map<String, Object> evidence = new LinkedHashMap<>();
+                                evidence.put("site", "0x" + Long.toHexString(site));
+                                evidence.put("target", "0x" + Long.toHexString(target));
+                                evidence.put("argumentIndex", argument - 1);
+                                evidence.put("rootKinds", graph.get("rootKinds"));
+                                evidence.put("inputRegisters", graph.get("inputRegisters"));
+                                evidence.put("stringCategories", graph.get("stringCategories"));
+                                evidence.put("operations", graph.get("operationCounts"));
+                                evidence.put("nodes", graph.get("nodes"));
+                                evidence.put("limited", Boolean.TRUE.equals(graph.get("nodeLimitReached")) || Boolean.TRUE.equals(graph.get("depthLimitReached")));
+                                if (tracedTargetArguments.size() < 32) tracedTargetArguments.add(evidence);
+                                else truncated = true;
+                            }
+                        }
+                    }
                     if (op.getOpcode() == PcodeOp.CALL && op.getNumInputs() > 0) {
                         directCallCount++;
                         if (calls.size() >= 16) { truncated = true; continue; }
@@ -464,6 +496,7 @@ public class WorldboxProbe extends GhidraScript {
                 row.put("stringCategories", strings);
                 row.put("callArgumentsExamined", callArgumentsExamined);
                 row.put("stringArgumentEvidence", stringArguments);
+                row.put("tracedTargetArguments", tracedTargetArguments);
                 row.put("truncated", truncated);
                 row.put("status", "completed");
             } catch (Exception ex) { row.put("status", "analysis-exception-" + ex.getClass().getSimpleName()); }

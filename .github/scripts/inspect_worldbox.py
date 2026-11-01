@@ -116,7 +116,8 @@ try:
             command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
                        '--headless', tool, '--binary', str(unity),
                        '--address', '0x752efc', '--address', '0x7537ac',
-                       '--address', '0x606668', '--address', '0x607050']
+                       '--address', '0x606668', '--address', '0x607050',
+                       '--trace-target', '0x10c9920']
             result = subprocess.run(command, capture_output=True, text=True, timeout=1000)
             if result.returncode:
                 raise RuntimeError('Bounded libunity Ghidra probe failed: ' + (result.stderr or result.stdout)[-1200:])

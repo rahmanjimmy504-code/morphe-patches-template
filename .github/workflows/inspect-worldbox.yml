@@ -112,7 +112,8 @@ jobs:
         run: |
           FIXTURE="$RUNNER_TEMP/worldbox-fixture.so"
           ADDRESS="$(PYTHONPATH=.github/scripts python -c 'import sys; from elftools.elf.elffile import ELFFile; elf=ELFFile(open(sys.argv[1], "rb")); sym=next(s for s in elf.get_section_by_name(".dynsym").iter_symbols() if s.name == "fixture_string_caller"); print(hex(sym["st_value"]))' "$FIXTURE")"
-          python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$FIXTURE" --fixture --address "$ADDRESS" --expect-string-category unity-purchasing-class
+          TARGET="$(PYTHONPATH=.github/scripts python -c 'import sys; from elftools.elf.elffile import ELFFile; elf=ELFFile(open(sys.argv[1], "rb")); sym=next(s for s in elf.get_section_by_name(".dynsym").iter_symbols() if s.name == "fixture_helper"); print(hex(sym["st_value"]))' "$FIXTURE")"
+          python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$FIXTURE" --fixture --address "$ADDRESS" --trace-target "$TARGET" --expect-string-category unity-purchasing-class
       - name: Verify JNI export selection on synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-jni') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --jni

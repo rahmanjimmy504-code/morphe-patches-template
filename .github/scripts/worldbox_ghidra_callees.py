@@ -186,7 +186,7 @@ def target_plan(path, fixture=False, origin=False, tail_origin=False, return_ori
         return {'imageBase': min(loads), 'functions': selected}
 
 
-def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None, expected_string_category=None):
+def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None, expected_string_category=None, trace_targets=None):
     plan = target_plan(binary, fixture, origin, tail_origin, return_origin, input_origin, input_children, jni, addresses)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
@@ -194,6 +194,7 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
         args = [str(headless), td, 'worldbox', '-import', str(Path(binary).resolve()), '-noanalysis',
                 '-scriptPath', str(scripts), '-postScript', 'WorldboxProbe.java', 'callees', hex(plan['imageBase'])]
         args += [f"{f['entry']:x}:{f['size']:x}" for f in plan['functions']]
+        args += [f"trace={hex(value)}" for value in sorted(set(trace_targets or []))]
         args += ['-deleteProject', '-max-cpu', '2']
         with (Path(td) / 'headless.log').open('w+', encoding='utf-8') as log:
             run = subprocess.run(args, stdout=log, stderr=subprocess.STDOUT, text=True, timeout=900)
@@ -218,7 +219,7 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
         imports = categorized_imports(elf)
         sections = [s for s in elf.iter_sections() if s['sh_flags'] & 4 and s['sh_type'] != 'SHT_NOBITS']
         for row in rows:
-            for call in row.get('calls', []) + row.get('stringArgumentEvidence', []):
+            for call in row.get('calls', []) + row.get('stringArgumentEvidence', []) + row.get('tracedTargetArguments', []):
                 if 'target' not in call:
                     continue
                 try:
@@ -241,7 +242,8 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
                            json.dumps(rows[0], separators=(',', ':'))[:2800])
     if fixture and expected_string_category and not any(
             expected_string_category in item.get('stringCategories', [])
-            for row in rows for item in row.get('stringArgumentEvidence', [])):
+            for row in rows for field in ('stringArgumentEvidence', 'tracedTargetArguments')
+            for item in row.get(field, [])):
         raise RuntimeError('Synthetic Ghidra probe did not trace the expected string category to a call argument')
     return report
 
@@ -259,6 +261,9 @@ def compact_callee(row):
         ('site', 'target', 'verifiedDirect', 'importCategory', 'operation', 'argumentIndex',
          'stringCategories', 'rootKinds', 'operations', 'nodes', 'limited')}
         for item in row.get('stringArgumentEvidence', [])]
+    row['tracedTargetArguments'] = [{key: item.get(key) for key in
+        ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds', 'inputRegisters', 'operations', 'nodes', 'limited')}
+        for item in row.get('tracedTargetArguments', [])]
     calls = []
     for call in row.get('calls', []):
         call = dict(call)
@@ -287,6 +292,8 @@ def main():
                         help='decompile the bounded function containing this executable instruction address; repeatable')
     parser.add_argument('--expect-string-category',
                         help='fixture-only assertion that a string category reaches a call argument')
+    parser.add_argument('--trace-target', action='append', type=lambda value: int(value, 0), default=[],
+                        help='summarize dataflow into calls to this direct target address; repeatable')
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--origin', action='store_true')
     modes.add_argument('--tail-origin', action='store_true')
@@ -296,7 +303,7 @@ def main():
     modes.add_argument('--jni', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni, args.address, args.expect_string_category), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni, args.address, args.expect_string_category, args.trace_target), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

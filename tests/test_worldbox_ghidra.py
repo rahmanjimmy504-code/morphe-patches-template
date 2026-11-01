@@ -68,11 +68,14 @@ class GhidraProbeTest(unittest.TestCase):
                'returnGraphs': [{'rootKinds': ['constant'], 'stringCategories': [],
                                  'operationCounts': {'CALL': 1}, 'nodes': 3}],
                'stringArgumentEvidence': [{'site': '0x120', 'operation': 'CALLIND', 'argumentIndex': 1,
-                                           'stringCategories': ['unity-purchasing-class'], 'nodes': 4}]}
+                                           'stringCategories': ['unity-purchasing-class'], 'nodes': 4}],
+               'tracedTargetArguments': [{'site': '0x120', 'target': '0x300', 'argumentIndex': 0,
+                                          'stringCategories': [], 'inputRegisters': ['x0'], 'nodes': 3}]}
         compact = callees.compact_callee(row)
         self.assertLessEqual(len(compact), 3800)
         self.assertEqual(json.loads(compact)['returnGraphs'][0]['operations'], ['CALL'])
         self.assertEqual(json.loads(compact)['stringArgumentEvidence'][0]['stringCategories'], ['unity-purchasing-class'])
+        self.assertEqual(json.loads(compact)['tracedTargetArguments'][0]['inputRegisters'], ['x0'])
 
     @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
     def test_selects_bounded_fde_for_instruction_addresses(self):
