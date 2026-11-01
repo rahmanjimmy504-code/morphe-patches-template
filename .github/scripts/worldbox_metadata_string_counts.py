@@ -1,5 +1,7 @@
 """Count exact WorldBox bridge/Premium name leads in opaque metadata bytes."""
 
+import struct
+
 NEEDLES = {
     "unity_purchasing": "UnityPurchasing",
     "unity_callback": "IUnityCallback",
@@ -38,6 +40,31 @@ def _overlapping_count(data: bytes, needle: bytes) -> int:
 def occurrence_offsets(data: bytes, text: str, limit: int = 8) -> list[int]:
     """Return capped relative offsets for targeted exact ASCII markers."""
     return _overlapping_offsets(data, text.encode("ascii"), limit)
+
+
+def candidate_string_heap_bases(data: bytes, texts: tuple[str, ...], min_support: int = 4, limit: int = 8) -> list[dict[str, int]]:
+    """Heuristically score aligned bases whose relative string offsets occur as u32s.
+
+    This deliberately does not claim to parse IL2CPP tables; false candidates
+    are possible in arbitrary binary data and must be validated structurally.
+    """
+    offsets = sorted({offset for text in texts for offset in occurrence_offsets(data, text)})
+    if len(offsets) < min_support:
+        return []
+    aligned_size = len(data) & ~3
+    word_values = {value for (value,) in struct.iter_unpack("<I", data[:aligned_size]) if value <= len(data)}
+    candidate_bases: set[int] = set()
+    for offset in offsets:
+        for value in word_values:
+            base = offset - value
+            if 0 < base < offset and base % 4 == 0:
+                candidate_bases.add(base)
+    scored = []
+    for base in candidate_bases:
+        support = sum(1 for offset in offsets if offset > base and offset - base in word_values)
+        if support >= min_support:
+            scored.append({"base": base, "support": support})
+    return sorted(scored, key=lambda row: (-row["support"], row["base"]))[:limit]
 
 
 def count_string_leads(data: bytes) -> dict[str, dict[str, int]]:

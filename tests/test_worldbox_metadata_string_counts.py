@@ -28,6 +28,17 @@ class WorldBoxMetadataStringCountsTest(unittest.TestCase):
         self.assertEqual(metadata_counts.occurrence_offsets(b'aa---aa', 'aa'), [0, 5])
         self.assertEqual(metadata_counts.occurrence_offsets(b'aaaa', 'aa'), [0, 1, 2])
 
+    def test_candidate_string_heap_base_fixture(self):
+        data = bytearray(2048)
+        texts = ('PremiumElementsChecker', 'PremiumWindow', 'PremiumUnlockAnimation', 'UnityPurchasing')
+        positions = (512, 768, 1024, 1280)
+        base = 128
+        for table_offset, (text, position) in enumerate(zip(texts, positions)):
+            data[table_offset * 4:table_offset * 4 + 4] = (position - base).to_bytes(4, 'little')
+            data[position:position + len(text)] = text.encode('ascii')
+        candidates = metadata_counts.candidate_string_heap_bases(bytes(data), texts, min_support=4)
+        self.assertIn({'base': base, 'support': 4}, candidates)
+
     def test_printable_contexts_are_bounded_and_contain_marker(self):
         data = b'\0Namespace.Type::PremiumWindow\0HelperAfter\0' + b'X' * 512
         contexts = metadata_counts.printable_run_contexts(data, 'PremiumWindow', radius=16, limit=4)

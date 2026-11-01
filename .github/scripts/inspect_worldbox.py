@@ -17,7 +17,7 @@ import zipfile
 
 import requests
 
-from worldbox_metadata_string_counts import NEEDLES as METADATA_NEEDLES, count_string_leads, nearby_null_identifiers, occurrence_offsets, printable_run_contexts
+from worldbox_metadata_string_counts import NEEDLES as METADATA_NEEDLES, candidate_string_heap_bases, count_string_leads, nearby_null_identifiers, occurrence_offsets, printable_run_contexts
 
 PAGE = 'https://www.apkmirror.com/apk/mako-mako/worldbox-sandbox-god-simulator/worldbox-sandbox-god-sim-0-51-4-release/worldbox-sandbox-god-sim-0-51-4-android-apk-download/'
 session = requests.Session()
@@ -769,6 +769,10 @@ try:
             for label in ('premium_elements_checker', 'premium_window', 'premium_unlock_animation')
         }
         print('::notice title=WorldBox raw metadata marker offsets::' + json.dumps(premium_offsets, separators=(',', ':')))
+        premium_labels = ('premium_elements_checker', 'premium_window', 'premium_unlock_animation')
+        candidate_bases = candidate_string_heap_bases(
+            header, tuple(METADATA_NEEDLES[label] for label in premium_labels))
+        print('::notice title=WorldBox metadata candidate string bases::' + json.dumps(candidate_bases, separators=(',', ':')))
         premium_contexts = {
             label: printable_run_contexts(header, METADATA_NEEDLES[label])
             for label in ('premium_elements_checker', 'premium_window', 'premium_unlock_animation')
