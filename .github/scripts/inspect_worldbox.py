@@ -89,16 +89,19 @@ try:
             for dex in report.get('dexFiles', []):
                 header = {'apk': dex.get('apk'), 'dex': dex.get('dex'),
                     'classesScanned': dex.get('classesScanned'),
-                    'callbackInterfaceFound': dex.get('callbackInterfaceFound')}
+                    'callbackInterfaceFound': dex.get('callbackInterfaceFound'),
+                    'callbackMethods': dex.get('callbackMethods', []),
+                    'directImplementerCount': len(dex.get('callbackImplementers', [])),
+                    'constructorCallCount': len(dex.get('purchasingConstructorCalls', []))}
                 print('::notice title=WorldBox DEX callback inventory::' + json.dumps(header, separators=(',', ':')).replace('%', '%25'))
-                for row in dex.get('callbackMethods', []):
-                    print('::notice title=WorldBox IUnityCallback method::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
                 for row in dex.get('callbackImplementers', []):
                     print('::warning title=WorldBox DEX callback implementer::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
                 for row in dex.get('callbackReferenceClasses', []):
                     print('::warning title=WorldBox DEX callback field reference::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
                 for row in dex.get('callbackReferenceMethods', []):
                     print('::warning title=WorldBox DEX callback method reference::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+                for row in dex.get('purchasingConstructorCalls', []):
+                    print('::warning title=WorldBox UnityPurchasing constructor callsite::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
                 for bridge in dex.get('purchasingBridgeClasses', []):
                     for row in bridge.get('methods', []):
                         print('::warning title=WorldBox UnityPurchasing bridge method::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))

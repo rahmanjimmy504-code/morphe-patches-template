@@ -46,6 +46,7 @@ def analyze_classes(classes: Iterable) -> dict:
     callback_reference_classes = []
     callback_reference_methods = []
     purchasing_bridge_classes = []
+    purchasing_constructor_calls = []
     callback_def = defs.get(callback)
     callback_methods = []
     if callback_def:
@@ -87,6 +88,8 @@ def analyze_classes(classes: Iterable) -> dict:
                 bridge_methods.append(row)
             if callback.replace('.', '/') in descriptor or any(callback in target for target in calls):
                 callback_reference_methods.append(row)
+            if any("UnityPurchasing-><init>" in target for target in calls):
+                purchasing_constructor_calls.append(row)
 
             searchable = " ".join((class_name, method.get_name(), descriptor, *calls))
             if FOCUS.search(searchable):
@@ -107,6 +110,7 @@ def analyze_classes(classes: Iterable) -> dict:
         "callbackReferenceClasses": callback_reference_classes,
         "callbackReferenceMethods": callback_reference_methods,
         "purchasingBridgeClasses": purchasing_bridge_classes,
+        "purchasingConstructorCalls": purchasing_constructor_calls,
         "focusedMethods": focus_methods[:160],
         "limitations": "DEX declarations and call-site references only; dynamic dispatch, reflection, Unity native behavior and Premium entitlement semantics are not established.",
     }

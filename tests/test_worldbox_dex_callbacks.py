@@ -56,13 +56,17 @@ class DexCallbackProbeTest(unittest.TestCase):
             "Lcom/unity/purchasing/common/UnityPurchasing;",
             methods=[FakeMethod("<init>", "(Lcom/unity/purchasing/common/IUnityCallback;)V")],
         )
-        report = probe.analyze_classes([interface, handler, bridge])
+        creator = FakeClass("Lgame/StoreSetup;", methods=[FakeMethod("create", outputs=[
+            "v0, Lcom/unity/purchasing/common/UnityPurchasing;-><init>(Lcom/unity/purchasing/common/IUnityCallback;)V"
+        ])])
+        report = probe.analyze_classes([interface, handler, bridge, creator])
         self.assertTrue(report["callbackInterfaceFound"])
         self.assertEqual(report["callbackMethods"][0]["name"], "OnPurchaseSucceeded")
         self.assertEqual(report["callbackImplementers"][0]["class"], "game.StoreBridge")
         self.assertEqual(report["callbackImplementers"][0]["callbackMethods"][0]["name"], "OnPurchaseSucceeded")
         self.assertEqual(report["callbackReferenceMethods"][0]["class"], "com.unity.purchasing.common.UnityPurchasing")
         self.assertEqual(report["purchasingBridgeClasses"][0]["methods"][0]["method"], "<init>")
+        self.assertEqual(report["purchasingConstructorCalls"][0]["class"], "game.StoreSetup")
         focused = next(row for row in report["focusedMethods"] if row["class"] == "game.StoreBridge")
         self.assertIn("com.unity.purchasing.common.UnityPurchasing->OnPurchaseSucceeded(Ljava/lang/String;)V", focused["calls"])
         self.assertIn("not established", report["limitations"])
