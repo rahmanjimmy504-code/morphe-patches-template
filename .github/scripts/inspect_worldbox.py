@@ -155,7 +155,8 @@ try:
             probe_args = [sys.executable, '.github/scripts/' + probe_script,
                           '--headless', tool, '--binary', str(native)]
             if jni_mode:
-                probe_args.append('--jni')
+                # Inspect the known JNI caller and its direct callee as one bounded lead.
+                probe_args += ['--address', '0x18d02c8', '--address', '0x191c8c4']
             elif children_mode:
                 probe_args.append('--input-children')
             elif input_mode:
