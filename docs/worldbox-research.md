@@ -270,6 +270,12 @@ All five components lacked a stored script-specific type tree, so the probe coul
 
 The scan did not reconstruct missing script metadata, decode game-specific field values, inspect code or validate runtime behaviour. It identified no Premium entitlement check, working patch or release.
 
+### Premium component owner hierarchy: 2026-11-01
+
+[Run 41308267264](https://github.com/rahmanjimmy504-code/morphe-patches-template/actions/runs/41308267264) extended the hash-gated component probe with bounded GameObject names, component type labels and Transform-parent names. In `13cfff6f881b80049833c82202d4227a`, `PremiumWindow` is attached to `premium_menu`, and `ButtonPremium` is attached to `Get It Now` under `premium_menu`. In `7c7dd69ec9c748445ac2b5ecff11e69f`, `PremiumWindow` and `PremiumUnlockAnimation` share `premium_unlocked`; another `ButtonPremium` is on `CloseButton` under `premium_unlocked`.
+
+This strengthens the interpretation of these as serialized UI components, but supplies no method bodies, entitlement conditions or purchase event targets. The next useful inspection is the bounded persistent-event data on `Get It Now`, if the serialized layout can be resolved; no patch or unlock has been established.
+
 ### Ghidra analysis of exported JNI initialization: 2026-10-31
 
 The user requested Ghidra, Hopper and IDA. Ghidra 11.4.3 was run in the existing GitHub Actions workflow; neither Hopper nor IDA was found installed in the working environment, and neither was used or claimed as an independent cross-check. Their SDKs or integrations are not substitutes for the licensed disassemblers.
