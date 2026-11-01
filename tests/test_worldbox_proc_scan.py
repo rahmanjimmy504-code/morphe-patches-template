@@ -68,14 +68,17 @@ int main(void) {
     size_t split = 8, length = NEEDLES[0].length;
     memcpy(ascii, NEEDLES[0].bytes, split);
     memcpy(ascii + split, NEEDLES[0].bytes + split, length - split);
-    scan_strings(ascii, length, split, &stats);
+    scan_strings(ascii, length, split, MAP_ANONYMOUS, &stats);
     assert(stats.string_hits[0][0] == 1 && stats.string_hits[0][1] == 0);
+    assert(stats.class_string_hits[MAP_ANONYMOUS][0][0] == 1);
     unsigned char wide[128] = {0};
     for (size_t i = 0; i < length; i++) { wide[i * 2] = NEEDLES[0].bytes[i]; wide[i * 2 + 1] = 0; }
     memset(stats.string_hits, 0, sizeof(stats.string_hits));
+    memset(stats.class_string_hits, 0, sizeof(stats.class_string_hits));
     split = 17;
-    scan_strings(wide, length * 2, split, &stats);
+    scan_strings(wide, length * 2, split, MAP_FILE_BACKED, &stats);
     assert(stats.string_hits[0][1] == 1 && stats.string_hits[0][0] == 0);
+    assert(stats.class_string_hits[MAP_FILE_BACKED][0][1] == 1);
     return 0;
 }
 """ % SOURCE
@@ -95,7 +98,7 @@ int main(void) {
 #include <assert.h>
 int main(void) {
     uint64_t start, end;
-    Range priority = {100, 1000, 1}, later = {100, 1000, 0};
+    Range priority = {100, 1000, 1, MAP_ANONYMOUS}, later = {100, 1000, 0, MAP_FILE_BACKED};
     assert(select_window(&priority, 0, 200, &start, &end) && start == 100 && end == 300);
     assert(!select_window(&priority, 1, 200, &start, &end));
     assert(!select_window(&later, 0, 200, &start, &end));
@@ -130,6 +133,9 @@ int main(void) {
         self.assertGreaterEqual(hits['premium_elements_checker_ascii'], 1)
         self.assertGreaterEqual(hits['unity_callback_utf16le'], 1)
         self.assertGreaterEqual(hits['premium_window_utf16le'], 1)
+        anonymous_hits = result['priority']['memoryClassStringHits']['anonymous']
+        self.assertGreaterEqual(anonymous_hits['unity_purchasing_ascii'], 1)
+        self.assertEqual(result['priority']['memoryClassStringHits']['fileBacked']['unity_purchasing_ascii'], 0)
         self.assertNotIn('bytes', result)
 
     def test_pagemap_present_swapped_and_unknown_accounting(self):
@@ -142,7 +148,7 @@ int main(void) {
     FILE *f = tmpfile(); assert(f);
     uint64_t pages[] = {UINT64_C(1) << 63, 0, UINT64_C(1) << 62, UINT64_C(1) << 63};
     assert(fwrite(pages, sizeof(pages), 1, f) == 1); fflush(f);
-    Range map = {0, 5 * 4096, 1}, *runs = NULL;
+    Range map = {0, 5 * 4096, 1, MAP_ANONYMOUS}, *runs = NULL;
     size_t count = 0; Stats group[2] = {{0}, {0}};
     assert(resident_ranges(fileno(f), &map, 1, 4096, 0, &runs, &count, group) == 0);
     assert(count == 2 && runs[0].start == 0 && runs[0].end == 4096);

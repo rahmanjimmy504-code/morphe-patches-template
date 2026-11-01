@@ -30,11 +30,15 @@
 #define MAX_PAGEMAP_PAGES (UINT64_C(20) * 1024 * 1024)
 #define MAX_CHECKS 100000U
 
-typedef struct { uint64_t start, end; int priority; } Range;
+enum { MAP_ANONYMOUS, MAP_FILE_BACKED, MAP_SPECIAL, MAP_CLASS_COUNT };
+static const char *const MAP_CLASS_LABELS[MAP_CLASS_COUNT] = {"anonymous", "fileBacked", "special"};
+
+typedef struct { uint64_t start, end; int priority, map_class; } Range;
 typedef struct {
     uint64_t eligible, attempted, bytes_read, ranges, read_errors, candidates, versions, checks;
     uint64_t mapped, nonresident, swapped, unknown;
     uint64_t string_hits[8][2];
+    uint64_t class_string_hits[MAP_CLASS_COUNT][8][2];
 } Stats;
 
 typedef struct { const char *label; const unsigned char *bytes; size_t length; } Needle;
@@ -80,14 +84,14 @@ static int plausible(int fd, uint64_t pos, uint32_t *version) {
 
 /* Search known bridge/script identifiers only; counts are aggregate and no
    addresses or candidate memory bytes are retained or emitted. */
-static void scan_strings(const unsigned char *data, size_t have, size_t carry, Stats *s) {
+static void scan_strings(const unsigned char *data, size_t have, size_t carry, int map_class, Stats *s) {
     for (size_t n = 0; n < NEEDLE_COUNT; n++) {
         const Needle *needle = &NEEDLES[n];
         size_t wide_length = needle->length * 2;
         for (size_t i = 0; i + needle->length <= have; i++) {
             if (i + needle->length > carry &&
                 !memcmp(data + i, needle->bytes, needle->length))
-                s->string_hits[n][0]++;
+                s->string_hits[n][0]++, s->class_string_hits[map_class][n][0]++;
         }
         for (size_t i = 0; i + wide_length <= have; i++) {
             if (i + wide_length <= carry) continue;
@@ -95,13 +99,14 @@ static void scan_strings(const unsigned char *data, size_t have, size_t carry, S
             for (; j < needle->length; j++) {
                 if (data[i + 2 * j] != needle->bytes[j] || data[i + 2 * j + 1] != 0) break;
             }
-            if (j == needle->length) s->string_hits[n][1]++;
+            if (j == needle->length)
+                s->string_hits[n][1]++, s->class_string_hits[map_class][n][1]++;
         }
     }
 }
 
 /* Keep overlap for header signatures and exact ASCII/UTF-16LE string leads. */
-static void scan_range(int fd, unsigned char *buf, uint64_t start, uint64_t end, Stats *s) {
+static void scan_range(int fd, unsigned char *buf, uint64_t start, uint64_t end, int map_class, Stats *s) {
     size_t carry = 0;
     s->ranges++;
     for (uint64_t pos = start; pos < end;) {
@@ -112,7 +117,7 @@ static void scan_range(int fd, unsigned char *buf, uint64_t start, uint64_t end,
         if (n > 0) {
             s->bytes_read += (uint64_t)n;
             size_t have = carry + (size_t)n;
-            scan_strings(buf, have, carry, s);
+            scan_strings(buf, have, carry, map_class, s);
             for (size_t i = 0; i + 4 <= have; i++) {
                 if (u32le(buf + i) == 0xfab11bafU && s->checks < MAX_CHECKS) {
                     uint32_t version;
@@ -202,7 +207,7 @@ static int resident_ranges(int pagemap, const Range *maps, size_t count, uint64_
                             list = p; capacity = next;
                         }
                         run_index = used;
-                        list[used++] = (Range){page_start, page_start + page_size, r->priority};
+                        list[used++] = (Range){page_start, page_start + page_size, r->priority, r->map_class};
                     }
                 } else {
                     run_index = SIZE_MAX;
@@ -220,6 +225,13 @@ static int resident_ranges(int pagemap, const Range *maps, size_t count, uint64_
     return 0;
 }
 
+static void print_string_hits(const uint64_t hits[8][2]) {
+    for (size_t i = 0; i < NEEDLE_COUNT; i++) {
+        printf("%s\"%s_ascii\":%" PRIu64 ",\"%s_utf16le\":%" PRIu64,
+               i ? "," : "", NEEDLES[i].label, hits[i][0], NEEDLES[i].label, hits[i][1]);
+    }
+}
+
 static void print_stats(const Stats *s) {
     printf("{\"mappedBytes\":%" PRIu64 ",\"eligibleBytes\":%" PRIu64
            ",\"nonresidentBytes\":%" PRIu64 ",\"swappedBytes\":%" PRIu64
@@ -229,10 +241,12 @@ static void print_stats(const Stats *s) {
            ",\"validationChecks\":%" PRIu64 ",\"stringHits\":{",
            s->mapped, s->eligible, s->nonresident, s->swapped, s->unknown,
            s->attempted, s->bytes_read, s->ranges, s->read_errors, s->candidates, s->checks);
-    for (size_t i = 0; i < NEEDLE_COUNT; i++) {
-        printf("%s\"%s_ascii\":%" PRIu64 ",\"%s_utf16le\":%" PRIu64,
-               i ? "," : "", NEEDLES[i].label, s->string_hits[i][0],
-               NEEDLES[i].label, s->string_hits[i][1]);
+    print_string_hits(s->string_hits);
+    printf("},\"memoryClassStringHits\":{");
+    for (int c = 0; c < MAP_CLASS_COUNT; c++) {
+        printf("%s\"%s\":{", c ? "," : "", MAP_CLASS_LABELS[c]);
+        print_string_hits(s->class_string_hits[c]);
+        printf("}");
     }
     printf("}}");
 }
@@ -284,10 +298,12 @@ int main(int argc, char **argv) {
             permissions[0] != 'r' || end <= start) continue;
         const char *name = line + name_pos;
         while (*name == ' ' || *name == '\t') name++;
-        int anonymous = *name == '\0' || *name == '\n' || *name == '[' ||
+        int special = *name == '[';
+        int anonymous = *name == '\0' || *name == '\n' || special ||
                         !strncmp(name, "/dev/zero", 9) || !strncmp(name, "/dev/ashmem", 11) ||
                         !strncmp(name, "/memfd:", 7);
         int priority = permissions[1] == 'w' && anonymous && end - start <= SMALL_RANGE;
+        int map_class = special ? MAP_SPECIAL : anonymous ? MAP_ANONYMOUS : MAP_FILE_BACKED;
         int g = priority ? 0 : 1;
         if (UINT64_MAX - group[g].eligible < end - start) {
             fprintf(stderr, "readable mapping size overflow\n"); goto done;
@@ -301,7 +317,7 @@ int main(int argc, char **argv) {
             if (!p) { fprintf(stderr, "allocation failed\n"); goto done; }
             ranges = p; capacity = next;
         }
-        ranges[count++] = (Range){start, end, priority};
+        ranges[count++] = (Range){start, end, priority, map_class};
     }
     if (ferror(maps)) { fprintf(stderr, "error reading mappings\n"); goto done; }
     if (resident) {
@@ -325,7 +341,7 @@ int main(int argc, char **argv) {
             Range *r = &ranges[g == 0 ? i : count - 1 - i];
             uint64_t start, end;
             if (select_window(r, g, GROUP_BUDGET - group[g].attempted, &start, &end))
-                scan_range(mem, buf, start, end, &group[g]);
+                scan_range(mem, buf, start, end, r->map_class, &group[g]);
         }
     }
     uint64_t versions = group[0].versions | group[1].versions;
