@@ -476,21 +476,29 @@ try:
                 observed = hashlib.file_digest(f, 'sha256').hexdigest()
             if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
-            result = subprocess.run([sys.executable, '.github/scripts/worldbox_string_leads.py', str(native)],
-                                    capture_output=True, text=True, timeout=360, check=True)
-            report = json.loads(result.stdout)
-            if report.get('kind') != 'arm64-string-leads':
-                raise RuntimeError('Unexpected string-lead result.')
-            print('ARM64 aggregate string-lead report: ' + json.dumps(report, separators=(',', ':')))
-            summary = {key: report[key] for key in ('dataBytesScanned', 'dataBytesTotal', 'execBytesRead', 'execBytesScanned', 'execBytesTotal', 'referenceSweepPerformed')}
-            summary['categories'] = {name: {'matches': value['matches'], 'targetLimitReached': value['targetLimitReached'],
-                                            'entriesWithRefs': sum(bool(row['startRefs'] or row['keywordRefs']) for row in value['entries'])}
-                                     for name, value in report['categories'].items()}
-            print('::warning title=WorldBox string-lead summary::' + json.dumps(summary, separators=(',', ':')))
-            for category, value in report['categories'].items():
-                for row in value['entries']:
-                    if row['startRefs'] or row['keywordRefs']:
-                        print('::warning title=WorldBox string-lead reference::' + json.dumps({'category': category, **row}, separators=(',', ':')))
+            libraries = [('libil2cpp.so', native), ('libunity.so', unity)]
+            for label, library in libraries:
+                if not library or not library.is_file():
+                    if label == 'libil2cpp.so':
+                        raise RuntimeError('Required ARM64 libil2cpp.so was not extracted.')
+                    continue
+                with library.open('rb') as f:
+                    library_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+                result = subprocess.run([sys.executable, '.github/scripts/worldbox_string_leads.py', str(library)],
+                                        capture_output=True, text=True, timeout=360, check=True)
+                report = json.loads(result.stdout)
+                if report.get('kind') != 'arm64-string-leads':
+                    raise RuntimeError('Unexpected string-lead result for ' + label)
+                summary = {'library': label, 'sha256': library_hash}
+                summary.update({key: report[key] for key in ('dataBytesScanned', 'dataBytesTotal', 'execBytesRead', 'execBytesScanned', 'execBytesTotal', 'referenceSweepPerformed')})
+                summary['categories'] = {name: {'matches': value['matches'], 'targetLimitReached': value['targetLimitReached'],
+                                                'entriesWithRefs': sum(bool(row['startRefs'] or row['keywordRefs']) for row in value['entries'])}
+                                         for name, value in report['categories'].items()}
+                print('::warning title=WorldBox string-lead summary::' + json.dumps(summary, separators=(',', ':')))
+                for category, value in report['categories'].items():
+                    for row in value['entries']:
+                        if row['startRefs'] or row['keywordRefs']:
+                            print('::warning title=WorldBox string-lead reference::' + json.dumps({'library': label, 'category': category, **row}, separators=(',', ':')))
             sys.exit(0)
         if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
             if not native or not native.is_file():
