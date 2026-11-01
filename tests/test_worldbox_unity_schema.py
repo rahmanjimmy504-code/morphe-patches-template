@@ -12,7 +12,40 @@ def node(name, kind, children=()):
     return SimpleNamespace(m_Name=name, m_Type=kind, m_Children=list(children))
 
 
+class FakeUnityObject:
+    def __init__(self, path_id, type_name, values):
+        self.path_id = path_id
+        self.type = SimpleNamespace(name=type_name)
+        self.values = values
+
+    def read_typetree(self, **kwargs):
+        return self.values
+
+
+class FakeAsset:
+    def __init__(self, objects):
+        self.objects = objects
+
+
 class SchemaTest(unittest.TestCase):
+    def test_bounded_game_object_hierarchy_context(self):
+        ptr = lambda path_id: {'m_FileID': 0, 'm_PathID': path_id}
+        objects = {
+            1: FakeUnityObject(1, 'GameObject', {'m_Name': 'Canvas',
+                'm_Component': [{'component': ptr(11)}]}),
+            2: FakeUnityObject(2, 'GameObject', {'m_Name': 'PremiumWindow',
+                'm_Component': [{'component': ptr(12)}, {'component': ptr(13)}]}),
+            11: FakeUnityObject(11, 'RectTransform', {'m_Father': ptr(0), 'm_GameObject': ptr(1)}),
+            12: FakeUnityObject(12, 'RectTransform', {'m_Father': ptr(11), 'm_GameObject': ptr(2)}),
+            13: FakeUnityObject(13, 'MonoBehaviour', {}),
+        }
+        context = probe.game_object_context(FakeAsset(objects), 2)
+        self.assertTrue(context['available'])
+        self.assertEqual(context['name'], 'PremiumWindow')
+        self.assertEqual(context['hierarchy'], ['PremiumWindow', 'Canvas'])
+        self.assertEqual(context['componentTypes'], ['RectTransform', 'MonoBehaviour'])
+        self.assertFalse(context['hierarchyTruncated'])
+
     def test_stored_schema_and_safe_filter(self):
         root = node('root', 'MonoBehaviour', [node('isPremium', 'bool'),
                     node('bad\nname', 'secret\nvalue'), node('items', 'PPtr<GameObject>')])
@@ -38,6 +71,7 @@ class SchemaTest(unittest.TestCase):
         self.assertEqual(row['script'], 'PremiumElementsChecker')
         self.assertEqual(row['scriptResolution'], 'external-basename-match')
         self.assertEqual((row['gameObjectFileId'], row['gameObjectPathId']), (0, 5))
+        self.assertFalse(row['ownerContext']['available'])
         self.assertFalse(row['schema']['available'])
 
     def test_wrong_object_script_and_unresolved_reference_fail(self):

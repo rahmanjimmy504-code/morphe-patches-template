@@ -23,6 +23,9 @@ MAX_NODES = 2048
 MAX_FIELDS = 48
 SAFE_NAME = re.compile(r'[A-Za-z_][A-Za-z0-9_.+\[\]]{0,127}\Z', re.ASCII)
 SAFE_TYPE = re.compile(r'[A-Za-z_][A-Za-z0-9_.+<>\[\], *-]{0,127}\Z', re.ASCII)
+SAFE_OBJECT_NAME = re.compile(r'[A-Za-z0-9 _().+-]{1,128}\Z', re.ASCII)
+MAX_HIERARCHY = 8
+MAX_COMPONENTS = 32
 
 
 def schema(root):
@@ -42,6 +45,78 @@ def schema(root):
     return {'available': True, 'topLevelCount': len(children), 'fields': fields,
             'fieldsTruncated': len(children) > len(fields),
             'nodesVisited': seen, 'nodeLimitReached': bool(stack)}
+
+
+def _path_id(pointer):
+    if not isinstance(pointer, dict):
+        return None
+    path_id = pointer.get('m_PathID')
+    return path_id if isinstance(path_id, int) and path_id > 0 else None
+
+
+def game_object_context(asset, game_object_path_id):
+    """Return bounded object names and component type labels for a known local owner."""
+    game_object = asset.objects.get(game_object_path_id)
+    if game_object is None or game_object.type.name != 'GameObject':
+        return {'available': False}
+    try:
+        values = game_object.read_typetree(check_read=False)
+        raw_name = values.get('m_Name')
+        name = raw_name if isinstance(raw_name, str) and SAFE_OBJECT_NAME.fullmatch(raw_name) else None
+        components = values.get('m_Component', [])
+        if not isinstance(components, list):
+            components = []
+        component_types = []
+        transform = None
+        for item in components[:MAX_COMPONENTS]:
+            if not isinstance(item, dict):
+                continue
+            component_id = _path_id(item.get('component', item))
+            component = asset.objects.get(component_id) if component_id is not None else None
+            if component is None:
+                continue
+            type_name = component.type.name
+            if isinstance(type_name, str) and SAFE_TYPE.fullmatch(type_name):
+                component_types.append(type_name)
+            if type_name in ('Transform', 'RectTransform'):
+                transform = component
+        hierarchy = [name] if name else []
+        seen_transforms = set()
+        hierarchy_truncated = False
+        for level in range(MAX_HIERARCHY - 1):
+            if transform is None:
+                break
+            transform_id = getattr(transform, 'path_id', None)
+            if transform_id in seen_transforms:
+                break
+            if transform_id is not None:
+                seen_transforms.add(transform_id)
+            transform_values = transform.read_typetree(check_read=False)
+            parent_id = _path_id(transform_values.get('m_Father'))
+            parent_transform = asset.objects.get(parent_id) if parent_id is not None else None
+            if parent_transform is None:
+                break
+            parent_transform_id = getattr(parent_transform, 'path_id', parent_id)
+            if parent_transform_id in seen_transforms:
+                break
+            parent_values = parent_transform.read_typetree(check_read=False)
+            parent_go_id = _path_id(parent_values.get('m_GameObject'))
+            parent_go = asset.objects.get(parent_go_id) if parent_go_id is not None else None
+            if parent_go is None or parent_go.type.name != 'GameObject':
+                break
+            parent_go_values = parent_go.read_typetree(check_read=False)
+            parent_name = parent_go_values.get('m_Name')
+            if isinstance(parent_name, str) and SAFE_OBJECT_NAME.fullmatch(parent_name):
+                hierarchy.append(parent_name)
+            transform = parent_transform
+            if level == MAX_HIERARCHY - 2:
+                hierarchy_truncated = True
+        return {'available': True, 'name': name, 'hierarchy': hierarchy,
+                'hierarchyTruncated': hierarchy_truncated,
+                'componentTypes': component_types[:MAX_COMPONENTS],
+                'componentsTruncated': len(components) > MAX_COMPONENTS}
+    except Exception:
+        return {'available': False}
 
 
 def inspect_bytes(data, owner, expected, basename_unique=True):
@@ -78,6 +153,7 @@ def inspect_bytes(data, owner, expected, basename_unique=True):
         rows.append({'objectPathId': path_id, 'scriptPathId': script_id,
                      'script': refs.TARGETS[script_id], 'scriptResolution': resolution,
                      'gameObjectFileId': go_file, 'gameObjectPathId': go_id,
+                     'ownerContext': game_object_context(asset, go_id) if go_file == 0 else {'available': False},
                      'objectSize': obj.byte_size, 'schema': schema(node)})
     return {'entry': refs.safe_path(owner), 'unityVersion': asset.unity_version, 'objects': rows}
 
