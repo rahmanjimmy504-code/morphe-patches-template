@@ -30,8 +30,8 @@
 #define MAX_PAGEMAP_PAGES (UINT64_C(20) * 1024 * 1024)
 #define MAX_CHECKS 100000U
 
-enum { MAP_ANONYMOUS, MAP_APK, MAP_SHARED_OBJECT, MAP_OTHER_FILE, MAP_SPECIAL, MAP_CLASS_COUNT };
-static const char *const MAP_CLASS_LABELS[MAP_CLASS_COUNT] = {"anonymous", "apk", "sharedObject", "otherFile", "special"};
+enum { MAP_ANONYMOUS, MAP_APK, MAP_SHARED_OBJECT, MAP_DATA_FILE, MAP_OTHER_FILE, MAP_SPECIAL, MAP_CLASS_COUNT };
+static const char *const MAP_CLASS_LABELS[MAP_CLASS_COUNT] = {"anonymous", "apk", "sharedObject", "dataFile", "otherFile", "special"};
 
 typedef struct { uint64_t start, end; int priority, map_class; } Range;
 typedef struct {
@@ -74,6 +74,7 @@ static int classify_mapping(const char *name) {
         return MAP_ANONYMOUS;
     if (strstr(name, ".apk")) return MAP_APK;
     if (strstr(name, ".so")) return MAP_SHARED_OBJECT;
+    if (strstr(name, ".dat")) return MAP_DATA_FILE;
     return MAP_OTHER_FILE;
 }
 
