@@ -117,6 +117,7 @@ jobs:
           archive="$RUNNER_TEMP/Il2CppInspectorRedux.CLI-linux-x64.zip"
           curl -fsSL --retry 3 -o "$archive" https://github.com/LukeFZ/Il2CppInspectorRedux/releases/download/2026.2/Il2CppInspectorRedux.CLI-linux-x64.zip
           echo "10429eb06f007a5e011f680e83109eca2a7a1cef4d946f37bf2adf439280f269  $archive" | sha256sum -c -
+          echo "Verified Il2CppInspectorRedux 2026.2 CLI archive"
           mkdir -p "$RUNNER_TEMP/inspector-redux"
           unzip -q "$archive" -d "$RUNNER_TEMP/inspector-redux"
           binary="$(find "$RUNNER_TEMP/inspector-redux" -type f -name 'Il2CppInspector.Redux.CLI' -print -quit)"
