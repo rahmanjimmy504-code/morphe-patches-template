@@ -152,6 +152,7 @@ int main(void) {
     size_t count = 0; Stats group[2] = {{0}, {0}};
     assert(resident_ranges(fileno(f), &map, 1, 4096, 0, &runs, &count, group) == 0);
     assert(count == 2 && runs[0].start == 0 && runs[0].end == 4096);
+    assert(runs[0].map_class == MAP_ANONYMOUS);
     assert(runs[1].start == 3 * 4096 && runs[1].end == 4 * 4096);
     assert(group[0].eligible == 2 * 4096 && group[0].nonresident == 2 * 4096);
     assert(group[0].swapped == 4096 && group[0].unknown == 4096);
@@ -159,6 +160,7 @@ int main(void) {
     Stats combined[2] = {{0}, {0}};
     assert(resident_ranges(fileno(f), &map, 1, 4096, 1, &runs, &count, combined) == 0);
     assert(count == 2 && runs[0].start == 0 && runs[0].end == 4096);
+    assert(runs[0].map_class == MAP_ANONYMOUS);
     assert(runs[1].start == 2 * 4096 && runs[1].end == 4 * 4096);
     assert(combined[0].eligible == 3 * 4096 && combined[0].nonresident == 2 * 4096);
     assert(combined[0].swapped == 4096 && combined[0].unknown == 4096);
