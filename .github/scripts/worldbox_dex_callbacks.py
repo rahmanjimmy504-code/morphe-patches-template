@@ -43,6 +43,9 @@ def analyze_classes(classes: Iterable) -> dict:
     callback = "com.unity.purchasing.common.IUnityCallback"
     implementers = []
     focus_methods = []
+    callback_reference_classes = []
+    callback_reference_methods = []
+    purchasing_bridge_classes = []
     callback_def = defs.get(callback)
     callback_methods = []
     if callback_def:
@@ -62,9 +65,29 @@ def analyze_classes(classes: Iterable) -> dict:
             ]
             implementers.append({"class": class_name, "interfaces": interfaces, "callbackMethods": implemented})
 
+        fields = []
+        for field in cls.get_fields():
+            field_type = field.get_descriptor()
+            if callback.replace('.', '/') in field_type:
+                fields.append({"name": field.get_name(), "descriptor": field_type})
+        if fields:
+            callback_reference_classes.append({"class": class_name, "fields": fields})
+
+        bridge_methods = []
         for method in cls.get_methods():
             calls = _call_targets(method)
             descriptor = method.get_descriptor()
+            row = {
+                "class": class_name,
+                "method": method.get_name(),
+                "descriptor": descriptor,
+                "calls": [target for target in calls if FOCUS.search(target) or "UnityPurchasing" in target or "UnityPlayer" in target],
+            }
+            if class_name == "com.unity.purchasing.common.UnityPurchasing":
+                bridge_methods.append(row)
+            if callback.replace('.', '/') in descriptor or any(callback in target for target in calls):
+                callback_reference_methods.append(row)
+
             searchable = " ".join((class_name, method.get_name(), descriptor, *calls))
             if FOCUS.search(searchable):
                 focus_methods.append({
@@ -73,12 +96,17 @@ def analyze_classes(classes: Iterable) -> dict:
                     "descriptor": descriptor,
                     "calls": [target for target in calls if FOCUS.search(target) or "UnityPurchasing" in target],
                 })
+        if class_name == "com.unity.purchasing.common.UnityPurchasing":
+            purchasing_bridge_classes.append({"class": class_name, "methods": bridge_methods})
 
     return {
         "classesScanned": len(defs),
         "callbackInterfaceFound": callback in defs,
         "callbackMethods": callback_methods,
         "callbackImplementers": implementers,
+        "callbackReferenceClasses": callback_reference_classes,
+        "callbackReferenceMethods": callback_reference_methods,
+        "purchasingBridgeClasses": purchasing_bridge_classes,
         "focusedMethods": focus_methods[:160],
         "limitations": "DEX declarations and call-site references only; dynamic dispatch, reflection, Unity native behavior and Premium entitlement semantics are not established.",
     }

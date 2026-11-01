@@ -89,13 +89,19 @@ try:
             for dex in report.get('dexFiles', []):
                 header = {'apk': dex.get('apk'), 'dex': dex.get('dex'),
                     'classesScanned': dex.get('classesScanned'),
-                    'callbackInterfaceFound': dex.get('callbackInterfaceFound'),
-                    'callbackMethods': dex.get('callbackMethods')}
+                    'callbackInterfaceFound': dex.get('callbackInterfaceFound')}
                 print('::notice title=WorldBox DEX callback inventory::' + json.dumps(header, separators=(',', ':')).replace('%', '%25'))
+                for row in dex.get('callbackMethods', []):
+                    print('::notice title=WorldBox IUnityCallback method::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
                 for row in dex.get('callbackImplementers', []):
                     print('::warning title=WorldBox DEX callback implementer::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
-                for row in dex.get('focusedMethods', []):
-                    print('::warning title=WorldBox DEX purchase bridge reference::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+                for row in dex.get('callbackReferenceClasses', []):
+                    print('::warning title=WorldBox DEX callback field reference::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+                for row in dex.get('callbackReferenceMethods', []):
+                    print('::warning title=WorldBox DEX callback method reference::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+                for bridge in dex.get('purchasingBridgeClasses', []):
+                    for row in bridge.get('methods', []):
+                        print('::warning title=WorldBox UnityPurchasing bridge method::' + json.dumps(row, separators=(',', ':')).replace('%', '%25'))
         if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
