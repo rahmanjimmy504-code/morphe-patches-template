@@ -17,6 +17,8 @@ import zipfile
 
 import requests
 
+from worldbox_metadata_string_counts import count_string_leads
+
 PAGE = 'https://www.apkmirror.com/apk/mako-mako/worldbox-sandbox-god-simulator/worldbox-sandbox-god-sim-0-51-4-release/worldbox-sandbox-god-sim-0-51-4-android-apk-download/'
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36'})
@@ -760,6 +762,8 @@ try:
             raise RuntimeError('Missing ARM64 native library or Unity metadata.')
         print('::notice title=WorldBox SHA-256::ARM64 library ' + hashlib.file_digest(native.open('rb'), 'sha256').hexdigest())
         header = metadata.read_bytes()
+        raw_string_leads = count_string_leads(header)
+        print('::notice title=WorldBox raw metadata string leads::' + json.dumps(raw_string_leads, separators=(',', ':')))
         magic = b'\xaf\x1b\xb1\xfa'
         print('::notice title=WorldBox metadata::Header ' + header[:32].hex() + ' magic offset ' + str(header.find(magic)))
         sample = header[:min(len(header), 1024 * 1024)]
