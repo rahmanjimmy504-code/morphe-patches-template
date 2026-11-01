@@ -422,6 +422,10 @@ public class WorldboxProbe extends GhidraScript {
                                     Map<String, Object> evidence = new LinkedHashMap<>();
                                     evidence.put("site", "0x" + Long.toHexString(site));
                                     evidence.put("operation", op.getMnemonic());
+                                    if (op.getOpcode() == PcodeOp.CALL && op.getNumInputs() > 0) {
+                                        long target = op.getInput(0).getOffset() - currentProgram.getImageBase().getOffset() + originalBase;
+                                        evidence.put("target", "0x" + Long.toHexString(target));
+                                    }
                                     evidence.put("argumentIndex", argument - 1);
                                     evidence.put("stringCategories", foundCategories);
                                     evidence.put("rootKinds", graph.get("rootKinds"));

@@ -218,7 +218,9 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
         imports = categorized_imports(elf)
         sections = [s for s in elf.iter_sections() if s['sh_flags'] & 4 and s['sh_type'] != 'SHT_NOBITS']
         for row in rows:
-            for call in row.get('calls', []):
+            for call in row.get('calls', []) + row.get('stringArgumentEvidence', []):
+                if 'target' not in call:
+                    continue
                 try:
                     pc, target = int(call['site'], 16), int(call['target'], 16)
                     sec = next((s for s in sections if s['sh_addr'] <= pc and pc + 4 <= s['sh_addr'] + s['sh_size']), None)
@@ -254,7 +256,8 @@ def compact_callee(row):
                        'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))})
     row['returnGraphs'] = graphs
     row['stringArgumentEvidence'] = [{key: item.get(key) for key in
-        ('site', 'operation', 'argumentIndex', 'stringCategories', 'rootKinds', 'operations', 'nodes', 'limited')}
+        ('site', 'target', 'verifiedDirect', 'importCategory', 'operation', 'argumentIndex',
+         'stringCategories', 'rootKinds', 'operations', 'nodes', 'limited')}
         for item in row.get('stringArgumentEvidence', [])]
     calls = []
     for call in row.get('calls', []):
