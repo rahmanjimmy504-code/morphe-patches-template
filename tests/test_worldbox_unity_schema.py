@@ -65,6 +65,16 @@ class SchemaTest(unittest.TestCase):
         self.assertFalse(inactive['activeSelf'])
         self.assertFalse(inactive['activeInHierarchy'])
 
+    def test_canvas_group_state(self):
+        component = FakeUnityObject(20, 'CanvasGroup', {
+            'm_Alpha': 0.0, 'm_Interactable': 1, 'm_BlocksRaycasts': 0})
+        self.assertEqual(probe._canvas_group_state(component), {
+            'alpha': 0.0, 'interactable': True, 'blocksRaycasts': False})
+        invalid = FakeUnityObject(21, 'CanvasGroup', {
+            'm_Alpha': float('nan'), 'm_Interactable': 2, 'm_BlocksRaycasts': 'yes'})
+        self.assertEqual(probe._canvas_group_state(invalid), {
+            'alpha': None, 'interactable': None, 'blocksRaycasts': None})
+
     def test_stored_schema_and_safe_filter(self):
         root = node('root', 'MonoBehaviour', [node('isPremium', 'bool'),
                     node('bad\nname', 'secret\nvalue'), node('items', 'PPtr<GameObject>')])

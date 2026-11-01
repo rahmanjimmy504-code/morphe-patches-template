@@ -5,6 +5,7 @@ Only serialized schema identifiers and common base references are emitted;
 no game-specific field values, method bodies, or asset bytes are exported.
 """
 import json
+import math
 from pathlib import Path
 import re
 import sys
@@ -49,6 +50,18 @@ def schema(root):
 
 def _active_flag(value):
     return bool(value) if isinstance(value, (bool, int)) and value in (0, 1) else None
+
+
+def _canvas_group_state(component):
+    try:
+        values = component.read_typetree(check_read=False)
+        alpha = values.get('m_Alpha')
+        if not isinstance(alpha, (int, float)) or not math.isfinite(alpha) or not 0 <= alpha <= 1:
+            alpha = None
+        return {'alpha': alpha, 'interactable': _active_flag(values.get('m_Interactable')),
+                'blocksRaycasts': _active_flag(values.get('m_BlocksRaycasts'))}
+    except Exception:
+        return {'alpha': None, 'interactable': None, 'blocksRaycasts': None}
 
 
 def _path_id(pointer):
@@ -117,6 +130,7 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
             components = []
         component_types = []
         component_scripts = []
+        canvas_groups = []
         transform = None
         script_cache = script_cache if script_cache is not None else {}
         for index, item in enumerate(components[:MAX_COMPONENTS]):
@@ -136,6 +150,8 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                     stored_type_tree = getattr(getattr(component, 'serialized_type', None), 'node', None)
                     component_scripts.append({'index': index, 'script': descriptor,
                                               'storedSchema': schema(stored_type_tree)})
+            if type_name == 'CanvasGroup':
+                canvas_groups.append({'index': index, **_canvas_group_state(component)})
             if type_name in ('Transform', 'RectTransform'):
                 transform = component
         hierarchy = [name] if name else []
@@ -178,6 +194,7 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                 'hierarchyTruncated': hierarchy_truncated,
                 'componentTypes': component_types[:MAX_COMPONENTS],
                 'componentScripts': component_scripts[:MAX_COMPONENTS],
+                'canvasGroups': canvas_groups[:MAX_COMPONENTS],
                 'componentsTruncated': len(components) > MAX_COMPONENTS}
     except Exception:
         return {'available': False}
