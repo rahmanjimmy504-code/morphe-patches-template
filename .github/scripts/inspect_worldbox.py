@@ -153,6 +153,25 @@ try:
             print('::warning title=WorldBox BetterCpp2IL MFuscator probe::' +
                   json.dumps(report, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_IL2CPP_DUMPER_PROBE') == '1':
+            if not native or not metadata or not base_apk or not arm64_apk:
+                raise RuntimeError('Base APK, ARM64 split, native library, and metadata are required for IL2CPP recovery analysis.')
+            output_root = Path(td) / 'mydearmoon-il2cpp-out'
+            temp_root = Path(td) / 'mydearmoon-il2cpp-work'
+            command = [sys.executable, '.github/scripts/worldbox_il2cpp_dumper_probe.py',
+                       '--binary', os.environ.get('MYDEARMOON_IL2CPP_DUMPER_BIN', ''),
+                       '--release-archive', os.environ.get('MYDEARMOON_IL2CPP_DUMPER_ARCHIVE', ''),
+                       '--base-apk', str(base_apk), '--native', str(native), '--metadata', str(metadata),
+                       '--output-dir', str(output_root), '--temp-dir', str(temp_root)]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1600)
+            if result.returncode:
+                raise RuntimeError('MyDearMoon Il2CppDumper wrapper failed: ' + (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'worldbox-il2cpp-dumper-recovery-probe':
+                raise RuntimeError('Unexpected MyDearMoon Il2CppDumper report.')
+            print('::warning title=WorldBox Il2CppDumper recovery probe::' +
+                  json.dumps(report, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_ARMV7_PROBE') == '1':
             if not native_v7 or not native_v7.is_file():
                 raise RuntimeError('ARMv7 libil2cpp.so not found in the bundle.')

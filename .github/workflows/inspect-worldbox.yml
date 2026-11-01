@@ -14,6 +14,7 @@ on:
       - .github/scripts/worldbox_ghidra_armv7.py
       - .github/scripts/worldbox_cpp2il_probe.py
       - .github/scripts/worldbox_mfuscator_probe.py
+      - .github/scripts/worldbox_il2cpp_dumper_probe.py
       - .github/scripts/worldbox_upstream.py
       - .github/scripts/worldbox_string_leads.py
       - .github/scripts/worldbox_metadata_string_counts.py
@@ -33,6 +34,7 @@ on:
       - tests/test_worldbox_ghidra.py
       - tests/test_worldbox_cpp2il_probe.py
       - tests/test_worldbox_mfuscator_probe.py
+      - tests/test_worldbox_il2cpp_dumper_probe.py
       - tests/test_worldbox_upstream.py
       - tests/test_worldbox_string_leads.py
       - tests/test_worldbox_metadata_string_counts.py
@@ -68,6 +70,7 @@ jobs:
           python3 tests/test_worldbox_proc_scan.py
           python3 tests/test_worldbox_cpp2il_probe.py
           python3 tests/test_worldbox_mfuscator_probe.py
+          python3 tests/test_worldbox_il2cpp_dumper_probe.py
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -102,12 +105,27 @@ jobs:
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/Cpp2IL" https://github.com/SamboyCoding/Cpp2IL/releases/download/2022.0.7/Cpp2IL-2022.0.7-Linux
           chmod +x "$RUNNER_TEMP/Cpp2IL"
           "$RUNNER_TEMP/Cpp2IL" --help > "$RUNNER_TEMP/cpp2il-help.txt"
+      - name: Download pinned MyDearMoon Il2CppDumper v1.4.0
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-mydm]') }}
+        run: |
+          archive="$RUNNER_TEMP/Il2CppDumper-linux-x64.tar.gz"
+          curl -fsSL --retry 3 -o "$archive" https://github.com/MyDearMoon/il2cpp-Dumper/releases/download/v1.4.0/Il2CppDumper-linux-x64.tar.gz
+          echo "66ace171cc9acd550f95ec4c42805c419492033ed44186e7e5921c9dc23abfec  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/mydearmoon-il2cppdumper"
+          tar -xzf "$archive" -C "$RUNNER_TEMP/mydearmoon-il2cppdumper"
+          chmod +x "$RUNNER_TEMP/mydearmoon-il2cppdumper/Il2CppDumper"
+          test -x "$RUNNER_TEMP/mydearmoon-il2cppdumper/Il2CppDumper"
+          echo "MYDEARMOON_IL2CPP_DUMPER_BIN=$RUNNER_TEMP/mydearmoon-il2cppdumper/Il2CppDumper" >> "$GITHUB_ENV"
+          echo "MYDEARMOON_IL2CPP_DUMPER_ARCHIVE=$archive" >> "$GITHUB_ENV"
       - name: Inspect WorldBox APKM
         env:
           WORLDBOX_CPP2IL_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-cpp2il]') && '1' || '0' }}
           WORLDBOX_MFUSCATOR_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-mfus]') && '1' || '0' }}
+          WORLDBOX_IL2CPP_DUMPER_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-mydm]') && '1' || '0' }}
           CPP2IL_BIN: ${{ runner.temp }}/Cpp2IL
           BETTER_CPP2IL_DLL: ${{ runner.temp }}/bettercpp2il/Cpp2IL.dll
+          MYDEARMOON_IL2CPP_DUMPER_BIN: ${{ runner.temp }}/mydearmoon-il2cppdumper/Il2CppDumper
+          MYDEARMOON_IL2CPP_DUMPER_ARCHIVE: ${{ runner.temp }}/Il2CppDumper-linux-x64.tar.gz
         run: python .github/scripts/inspect_worldbox.py
   # Requires a successful synthetic ARM64 decompilation before processing the game.
   ghidra-arm64-probe:
