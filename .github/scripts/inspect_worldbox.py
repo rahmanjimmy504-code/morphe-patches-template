@@ -809,7 +809,10 @@ try:
             if not lib:
                 continue
             data = lib.read_bytes()
-            needles = [b'global-metadata.dat', b'il2cpp_init', b'AES_decrypt', b'AES_cbc_encrypt', b'EVP_DecryptInit', b'metadata.dat']
+            needles = [b'global-metadata.dat', b'il2cpp_init', b'AES_decrypt', b'AES_cbc_encrypt',
+                       b'EVP_DecryptInit', b'metadata.dat', b'clickPremium', b'clickClose',
+                       b'clickHide', b'ResetState', b'ButtonPremium', b'PremiumWindow',
+                       b'PremiumUnlockAnimation']
             found = ', '.join(f'{needle.decode()}={data.find(needle)}' for needle in needles)
             print(f'::notice title=WorldBox native markers::{lib.name}: {found}')
             symbols = subprocess.run(['readelf', '-Ws', str(lib)], capture_output=True, text=True, check=True).stdout.splitlines()
