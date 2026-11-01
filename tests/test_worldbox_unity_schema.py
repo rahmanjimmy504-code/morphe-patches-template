@@ -1,5 +1,6 @@
 """Synthetic type-tree, component pointer and fail-closed coverage."""
 from pathlib import Path
+import struct
 import sys
 from types import SimpleNamespace
 import unittest
@@ -65,6 +66,11 @@ class SchemaTest(unittest.TestCase):
         inactive = probe.game_object_context(asset, 2, probe.refs.TARGET_FILE, asset)
         self.assertFalse(inactive['activeSelf'])
         self.assertFalse(inactive['activeInHierarchy'])
+
+    def test_local_pointer_reference_detection(self):
+        payload = b'head' + struct.pack('<iq', 0, 1700) + b'tail'
+        self.assertEqual(probe.pptr_reference_offsets(payload, 1700), [4])
+        self.assertEqual(probe.pptr_reference_offsets(payload, 1701), [])
 
     def test_aligned_serialized_identifier_strings(self):
         value = b'UnlockPremium'

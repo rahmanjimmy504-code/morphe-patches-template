@@ -71,6 +71,22 @@ def aligned_serialized_strings(data, limit=16):
     return sorted(found)
 
 
+def pptr_reference_offsets(data, target_path_id, limit=8):
+    """Find serialized local PPtr byte patterns for one positive path ID."""
+    if not isinstance(data, bytes) or not isinstance(target_path_id, int) or target_path_id <= 0:
+        return []
+    pattern = struct.pack('<iq', 0, target_path_id)
+    offsets = []
+    cursor = 0
+    while len(offsets) < limit:
+        offset = data.find(pattern, cursor)
+        if offset < 0:
+            break
+        offsets.append(offset)
+        cursor = offset + 1
+    return offsets
+
+
 def _active_flag(value):
     return bool(value) if isinstance(value, (bool, int)) and value in (0, 1) else None
 
@@ -154,6 +170,7 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
         component_types = []
         component_scripts = []
         canvas_groups = []
+        component_targets = []
         transform = None
         script_cache = script_cache if script_cache is not None else {}
         for index, item in enumerate(components[:MAX_COMPONENTS]):
@@ -166,6 +183,7 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
             type_name = component.type.name
             if isinstance(type_name, str) and SAFE_TYPE.fullmatch(type_name):
                 component_types.append(type_name)
+            descriptor = None
             if type_name == 'MonoBehaviour':
                 descriptor = _component_script(asset, component, owner, script_asset,
                                                basename_unique, script_cache)
@@ -181,10 +199,37 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                         except Exception:
                             row['serializedStringCandidates'] = []
                     component_scripts.append(row)
+            component_targets.append({'index': index,
+                                     'pathId': getattr(component, 'path_id', component_id),
+                                     'type': type_name,
+                                     'scriptClassName': descriptor.get('className') if descriptor else None,
+                                     'object': component})
             if type_name == 'CanvasGroup':
                 canvas_groups.append({'index': index, **_canvas_group_state(component)})
             if type_name in ('Transform', 'RectTransform'):
                 transform = component
+        button_pointer_candidates = []
+        for button in component_targets:
+            if button['scriptClassName'] != 'Button':
+                continue
+            try:
+                raw = button['object'].get_raw_data()
+            except Exception:
+                raw = b''
+            matches = []
+            for target in component_targets:
+                target_id = target['pathId']
+                if target_id == button['pathId'] or not isinstance(target_id, int):
+                    continue
+                offsets = pptr_reference_offsets(raw, target_id)
+                if offsets:
+                    matches.append({'index': target['index'], 'pathId': target_id,
+                                    'type': target['type'],
+                                    'scriptClassName': target['scriptClassName'],
+                                    'offsets': offsets})
+            button_pointer_candidates.append({'buttonIndex': button['index'],
+                                              'buttonPathId': button['pathId'],
+                                              'localPPtrMatches': matches})
         hierarchy = [name] if name else []
         active_states = [active_self]
         seen_transforms = set()
@@ -226,6 +271,7 @@ def game_object_context(asset, game_object_path_id, owner=None, script_asset=Non
                 'componentTypes': component_types[:MAX_COMPONENTS],
                 'componentScripts': component_scripts[:MAX_COMPONENTS],
                 'canvasGroups': canvas_groups[:MAX_COMPONENTS],
+                'buttonPPtrCandidates': button_pointer_candidates[:MAX_COMPONENTS],
                 'componentsTruncated': len(components) > MAX_COMPONENTS}
     except Exception:
         return {'available': False}
