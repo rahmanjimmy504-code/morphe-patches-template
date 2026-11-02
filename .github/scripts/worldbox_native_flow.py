@@ -25,6 +25,8 @@ SITES = {
     0x18ebdf0: 'open', 0x18ebec4: 'fstat',
     0x18ebf70: 'mmap', 0x18ebfb0: 'munmap',
 }
+# Ghidra-confirmed internal tail thunk with four bounded direct callers.
+TAIL_CALL_TARGETS = {0x18d3dd0: 'tail-mapparent'}
 MAX_EH_SIZE = 16 * 1024 * 1024
 MAX_FUNCTION = 32 * 1024
 MAX_STEPS = 50000
@@ -447,13 +449,47 @@ def inspect(path, sites=SITES):
                 result = analyze_window(f.read(hi - lo), lo, caller_plt, {site: wrapper_targets[target]}, classify)
                 caller_results.append({'site': hex(site), 'target': wrapper_targets[target], 'function': hex(lo),
                                        'workLimitReached': result['workLimitReached'], 'call': result['calls'][0]})
+        tail_caller_results = []
+        tail_refs = {target: {'count': 0, 'sampleSites': []} for target in TAIL_CALL_TARGETS}
+        for sec in executable:
+            if sec['sh_size'] > triage.MAX_EXEC:
+                caller_scan_truncated = True
+                continue
+            for pc, word in triage.instructions(sec.data(), sec['sh_addr']):
+                target = triage.direct_branch(word, pc)
+                if target in tail_refs:
+                    tail_refs[target]['count'] += 1
+                    if len(tail_refs[target]['sampleSites']) < 4:
+                        tail_refs[target]['sampleSites'].append(pc)
+        tail_plt = dict(caller_plt)
+        tail_plt.update(TAIL_CALL_TARGETS)
+        for target, info in tail_refs.items():
+            for site in info['sampleSites']:
+                frame = frame_for_site(sorted_frames, starts, site)
+                if not frame:
+                    tail_caller_results.append({'site': hex(site), 'target': hex(target), 'status': 'no-unwind-range'})
+                    continue
+                lo, hi = frame
+                sec = next((part for part in executable if part['sh_addr'] <= lo and hi <= part['sh_addr'] + part['sh_size']), None)
+                if not sec or hi - lo > MAX_FUNCTION or lo % 4:
+                    tail_caller_results.append({'site': hex(site), 'target': hex(target), 'status': 'unusable-or-too-large-range'})
+                    continue
+                f.seek(sec['sh_offset'] + lo - sec['sh_addr'])
+                result = analyze_window(f.read(hi - lo), lo, tail_plt, {site: TAIL_CALL_TARGETS[target]}, classify)
+                tail_caller_results.append({'site': hex(site), 'target': hex(target), 'function': hex(lo),
+                                            'workLimitReached': result['workLimitReached'], 'call': result['calls'][0]})
         caller_refs = {hex(target): {'kind': wrapper_targets[target], 'directCallCount': info['count'],
                                     'sampledSites': len(info['sampleSites'])}
                        for target, info in refs.items()}
+        tail_caller_refs = {hex(target): {'kind': TAIL_CALL_TARGETS[target], 'directBranchCount': info['count'],
+                                         'sampledSites': len(info['sampleSites'])}
+                            for target, info in tail_refs.items()}
         return {'kind': 'arm64-static-flow', 'unwindStatus': status, 'unwindRanges': len(frames),
                 'matchedWatchedPltStubs': matched, 'unresolvedSites': locations, 'functions': functions,
                 'directWrapperCallers': {'counts': caller_refs, 'examples': caller_results,
                                          'executableScanTruncated': caller_scan_truncated},
+                'tailTargetCallers': {'counts': tail_caller_refs, 'examples': tail_caller_results,
+                                      'executableScanTruncated': caller_scan_truncated},
                 'limitations': 'Heuristic CFG and register tracking with unwind-derived ranges; x0-after-call and loaded-through describe possible origins, not verified return values or memory contents. Unsupported instructions, indirect branches, aliases, external callees, dynamic data and incomplete unwind information can cause false positives or missed paths. Static possibilities are not runtime proof.'}
 
 

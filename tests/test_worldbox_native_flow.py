@@ -127,6 +127,16 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(result['calls'][0]['reachedInModel'])
         self.assertEqual(result['calls'][0]['arguments']['x0'], ['entry-argument-0'])
 
+    def test_direct_call_to_internal_tail_target_captures_argument_registers(self):
+        # bl internal_tail_thunk; ret
+        data = words(branch(0x3000, 0x2000), 0xd65f03c0)
+        result = flow.analyze_window(data, 0x3000, {0x2000: 'tail-mapparent'},
+                                     {0x3000: 'tail-mapparent'}, classify)
+        call = result['calls'][0]
+        self.assertTrue(call['reachedInModel'])
+        self.assertEqual(call['arguments']['x0'], ['entry-argument-0'])
+        self.assertEqual(call['arguments']['x1'], ['entry-argument-1'])
+
     def test_unwind_overlap_selection(self):
         frames = [(100, 500), (150, 180), (160, 220), (800, 900)]
         starts = [lo for lo, _ in frames]
