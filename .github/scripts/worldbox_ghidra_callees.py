@@ -186,28 +186,8 @@ def target_plan(path, fixture=False, origin=False, tail_origin=False, return_ori
         return {'imageBase': min(loads), 'functions': selected}
 
 
-def resolve_trace_imports(binary, names):
-    """Resolve only the CLI's allowlisted system imports to recognized PLT stubs."""
-    resolved = {}
-    if not names:
-        return resolved
-    with Path(binary).open('rb') as handle:
-        elf = ELFFile(handle)
-        import_stubs = safe_import_plt(elf)
-    for name in sorted(set(names)):
-        addresses = sorted(address for address, category in import_stubs.items() if category == name)
-        if not addresses:
-            raise ValueError('Requested safe import is not present: ' + name)
-        resolved[name] = [hex(address) for address in addresses]
-    return resolved
-
-
-def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None, expected_string_category=None, trace_targets=None, trace_imports=None):
+def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, return_origin=False, input_origin=False, input_children=False, jni=False, addresses=None, expected_string_category=None, trace_targets=None):
     plan = target_plan(binary, fixture, origin, tail_origin, return_origin, input_origin, input_children, jni, addresses)
-    trace_targets = set(trace_targets or [])
-    resolved_imports = resolve_trace_imports(binary, trace_imports)
-    for values in resolved_imports.values():
-        trace_targets.update(int(value, 16) for value in values)
     scripts = Path(__file__).resolve().parents[2] / 'docs/worldbox'
     base = Path(os.environ.get('RUNNER_TEMP', tempfile.gettempdir()))
     with tempfile.TemporaryDirectory(prefix='worldbox-ghidra-callees-', dir=base) as td:
@@ -265,14 +245,6 @@ def run_probe(headless, binary, fixture=False, origin=False, tail_origin=False, 
             for row in rows for field in ('stringArgumentEvidence', 'tracedTargetArguments')
             for item in row.get(field, [])):
         raise RuntimeError('Synthetic Ghidra probe did not trace the expected string category to a call argument')
-    if fixture and resolved_imports:
-        observed_targets = {item.get('target') for row in rows
-                            for item in row.get('tracedTargetArguments', [])}
-        expected_targets = {target for values in resolved_imports.values() for target in values}
-        if not observed_targets.intersection(expected_targets):
-            raise RuntimeError('Synthetic Ghidra probe did not trace arguments to a resolved system import')
-    if resolved_imports:
-        report['traceImportTargets'] = resolved_imports
     return report
 
 
@@ -324,8 +296,6 @@ def main():
                         help='fixture-only assertion that a string category reaches a call argument')
     parser.add_argument('--trace-target', action='append', type=lambda value: int(value, 0), default=[],
                         help='summarize dataflow into calls to this direct target address; repeatable')
-    parser.add_argument('--trace-import', action='append', choices=('open', 'fstat', 'mmap', 'munmap'), default=[],
-                        help='trace arguments to calls of this recognized system import; repeatable')
     modes = parser.add_mutually_exclusive_group()
     modes.add_argument('--origin', action='store_true')
     modes.add_argument('--tail-origin', action='store_true')
@@ -335,7 +305,7 @@ def main():
     modes.add_argument('--jni', action='store_true')
     args = parser.parse_args()
     try:
-        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni, args.address, args.expect_string_category, args.trace_target, args.trace_import), separators=(',', ':')))
+        print(json.dumps(run_probe(args.headless, args.binary, args.fixture, args.origin, args.tail_origin, args.return_origin, args.input_origin, args.input_children, args.jni, args.address, args.expect_string_category, args.trace_target), separators=(',', ':')))
     except (OSError, ValueError, RuntimeError, subprocess.SubprocessError) as exc:
         if args.fixture and os.environ.get('GITHUB_ACTIONS') == 'true':
             message = str(exc).replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A')

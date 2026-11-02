@@ -1,6 +1,4 @@
 /* Synthetic ARM64 fixture: no application code or external library required. */
-extern int open(const char *path, int flags, ...);
-
 __attribute__((visibility("default"), noinline))
 void *fixture_helper(void *value, void *input) {
     __asm__ volatile("" : : "r"(input) : "memory");
@@ -31,12 +29,6 @@ void *fixture_chain(struct fixture_outer *outer) {
 __attribute__((visibility("default"), noinline))
 void *JNI_OnLoad(void *value, void *reserved) {
     return fixture_helper(value, reserved);
-}
-
-/* Synthetic file-API fixture for bounded import-argument tracing. */
-__attribute__((visibility("default"), noinline))
-int fixture_io_caller(const char *path, int flags) {
-    return open(path, flags);
 }
 
 /* Synthetic string-use fixture for bounded p-code argument tracing. */

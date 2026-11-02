@@ -91,14 +91,6 @@ class GhidraProbeTest(unittest.TestCase):
         self.assertEqual(plan['functions'][0]['anchors'], [entry, entry + 4])
 
     @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
-    def test_resolves_only_allowlisted_imports_from_synthetic_arm64_elf(self):
-        resolved = callees.resolve_trace_imports(os.environ['WORLDBOX_TEST_FIXTURE'], ['open'])
-        self.assertIn('open', resolved)
-        self.assertTrue(resolved['open'])
-        with self.assertRaisesRegex(ValueError, 'not present'):
-            callees.resolve_trace_imports(os.environ['WORLDBOX_TEST_FIXTURE'], ['mmap'])
-
-    @unittest.skipUnless(os.environ.get('WORLDBOX_TEST_FIXTURE'), 'compiled ARM64 fixture not provided')
     def test_selects_callee_fixture(self):
         plan = callees.target_plan(os.environ['WORLDBOX_TEST_FIXTURE'], fixture=True)
         self.assertEqual(len(plan['functions']), 1)
