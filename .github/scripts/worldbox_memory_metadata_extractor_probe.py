@@ -77,21 +77,67 @@ def classify(returncode, dump_path, timed_out=False):
     }
 
 
-def diagnostic_lines(text):
+def _sanitize_lines(lines, limit=12):
     selected = []
-    for line in text.splitlines():
+    for line in lines:
         if re.search(r'hexdump|your hex|^[\s|+\-0-9a-f]{8,}$', line, re.I):
             continue
-        if not re.search(r'metadata|il2cpp|dump|error|failed|success|detected|size|pattern', line, re.I):
-            continue
         line = re.sub(r'0x[0-9a-fA-F]+', '<address>', line)
-        line = re.sub(r'/tmp/[^\s]+', '<temp-path>', line)
+        line = re.sub(r'/(?:tmp|home/runner)/[^\s]+', '<temp-path>', line)
         line = re.sub(r'\s+', ' ', line).strip()
         if line and len(line) <= 240:
             selected.append(line)
-        if len(selected) >= 12:
+        if len(selected) >= limit:
             break
     return selected
+
+
+def diagnostic_lines(text):
+    relevant = [line for line in text.splitlines()
+        if re.search(r'metadata|il2cpp|dump|error|failed|success|detected|size|pattern', line, re.I)]
+    return _sanitize_lines(relevant)
+
+
+def _adb_text(adb, args, timeout=10):
+    try:
+        result = subprocess.run([adb, *args], capture_output=True, text=True, timeout=timeout)
+        if result.returncode:
+            return ''
+        return result.stdout[:32_000]
+    except (OSError, subprocess.TimeoutExpired):
+        return ''
+
+
+def collect_runtime_diagnostics(adb='adb'):
+    """Collect a small, filtered snapshot before force-stopping a failed spawn."""
+    details = {}
+    pid_text = _adb_text(adb, ['shell', 'pidof', PACKAGE]).strip()
+    pids = pid_text.split()
+    if pids and pids[0].isdigit():
+        pid = pids[0]
+        details['spawnedProcessPid'] = int(pid)
+        status = _adb_text(adb, ['shell', 'cat', f'/proc/{pid}/status'])
+        details['processStatus'] = [line.strip() for line in status.splitlines()
+            if line.startswith(('Name:', 'State:', 'TracerPid:'))][:3]
+        executable = _adb_text(adb, ['shell', 'readlink', f'/proc/{pid}/exe']).strip()
+        details['processExecutable'] = executable[:160] if executable else None
+        maps = _adb_text(adb, ['shell', 'cat', f'/proc/{pid}/maps'])
+        details['nativeBridgeMapped'] = 'libndk_translation.so' in maps
+        details['targetLibrariesMapped'] = [line.split()[-1].rsplit('/', 1)[-1]
+            for line in maps.splitlines()
+            if line.split() and re.search(r'lib(il2cpp|unity)\.so', line.split()[-1])][:4]
+    else:
+        details['spawnedProcessPid'] = None
+
+    server_log = _adb_text(adb, ['shell', 'cat', '/data/local/tmp/worldbox-frida.log'])
+    details['fridaServerLines'] = _sanitize_lines(
+        [line for line in server_log.splitlines()
+         if re.search(r'error|failed|attach|ptrace|process|transport|agent', line, re.I)], 8)
+    logcat = _adb_text(adb, ['shell', 'logcat', '-d', '-t', '400'])
+    relevant = [line for line in logcat.splitlines()
+        if re.search(r'frida|mkarpenko\.worldbox|libndk_translation|AndroidRuntime|debuggerd|Fatal signal|avc: denied', line, re.I)]
+    details['filteredLogcatLines'] = _sanitize_lines(relevant, 12)
+    return details
 
 
 def run_probe(archive_path, source_dir, base_apk, native, raw_metadata,
@@ -127,6 +173,7 @@ def run_probe(archive_path, source_dir, base_apk, native, raw_metadata,
 
     timed_out = False
     combined_log = ''
+    runtime_diagnostics = None
     returncode = 125
     try:
         result = subprocess.run([sys.executable, str(py_script), PACKAGE,
@@ -139,11 +186,22 @@ def run_probe(archive_path, source_dir, base_apk, native, raw_metadata,
         out = exc.stdout.decode(errors='replace') if isinstance(exc.stdout, bytes) else (exc.stdout or '')
         err = exc.stderr.decode(errors='replace') if isinstance(exc.stderr, bytes) else (exc.stderr or '')
         combined_log = out + '\n' + err
+    except OSError as exc:
+        returncode = 127
+        combined_log = f'Extractor launch failed: {type(exc).__name__}'
     finally:
-        subprocess.run([adb, 'shell', 'am', 'force-stop', PACKAGE],
-                       capture_output=True, text=True, timeout=30)
+        if not classify(returncode, dump_path, timed_out)['metadataCandidateValidated']:
+            try:
+                runtime_diagnostics = collect_runtime_diagnostics(adb)
+            except Exception as exc:  # Keep diagnostic failure from hiding the bounded probe result.
+                runtime_diagnostics = {'collectionError': type(exc).__name__}
+        try:
+            subprocess.run([adb, 'shell', 'am', 'force-stop', PACKAGE],
+                           capture_output=True, text=True, timeout=30)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
 
-    return {
+    report = {
         'kind': 'worldbox-memory-metadata-extractor-probe',
         'tool': REPOSITORY,
         'toolCommit': TOOL_COMMIT,
@@ -154,6 +212,9 @@ def run_probe(archive_path, source_dir, base_apk, native, raw_metadata,
         **classify(returncode, dump_path, timed_out),
         'diagnosticLines': diagnostic_lines(combined_log),
     }
+    if runtime_diagnostics is not None:
+        report['runtimeDiagnostics'] = runtime_diagnostics
+    return report
 
 
 def main():

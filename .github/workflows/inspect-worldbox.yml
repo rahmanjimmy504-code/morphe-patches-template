@@ -475,9 +475,9 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   runtime-probe:
-    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') }}
+    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 35
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -485,9 +485,13 @@ jobs:
           python-version: '3.12'
       - run: python -m pip install requests
       - name: Install runtime scanner dependencies
+        env:
+          FRIDA_ANDROID_ARCH: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') && 'arm64' || 'x86_64' }}
+          FRIDA_SERVER_XZ_SHA256: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') && 'd91f2f79231eef2f6e8189a1e99f074fab93f538fc9347e22e4ca39d1d475202' || '6ee3d9c23149d23df0fda27663dbb6ef9ad1aa2f6166dc5e6dbcab455bd83719' }}
         run: |
           python -m pip install 'frida==17.25.0'
-          curl -fsSL --retry 3 -o "$RUNNER_TEMP/frida-server.xz" https://github.com/frida/frida/releases/download/17.25.0/frida-server-17.25.0-android-x86_64.xz
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/frida-server.xz" "https://github.com/frida/frida/releases/download/17.25.0/frida-server-17.25.0-android-${FRIDA_ANDROID_ARCH}.xz"
+          echo "$FRIDA_SERVER_XZ_SHA256  $RUNNER_TEMP/frida-server.xz" | sha256sum -c -
           xz -d "$RUNNER_TEMP/frida-server.xz"
           NDK="${ANDROID_NDK_LATEST_HOME:-${ANDROID_NDK_HOME:-}}"
           if [ -z "$NDK" ] || [ ! -d "$NDK" ]; then
@@ -495,7 +499,7 @@ jobs:
           fi
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang" -std=c11 -Wall -Wextra -Werror -O2 docs/worldbox/proc_scan.c -o "$RUNNER_TEMP/worldbox-proc-scan"
       - name: Download pinned Frida metadata extractor
-        if: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor]') }}
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') }}
         run: |
           archive="$RUNNER_TEMP/Il2CppMetadataExtractor-c31281b.zip"
           curl -fsSL --retry 3 -o "$archive" https://codeload.github.com/CameroonD/Il2CppMetadataExtractor/zip/c31281b43a67a1a7b17a255d930cd3fe8640f489
@@ -514,15 +518,15 @@ jobs:
         env:
           WORLDBOX_RUNTIME_PROBE: '1'
           WORLDBOX_METADATA_SCAN: ${{ (vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]')) && '1' || '0' }}
-          WORLDBOX_MEMORY_METADATA_EXTRACTOR: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor]') && '1' || '0' }}
+          WORLDBOX_MEMORY_METADATA_EXTRACTOR: ${{ (contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]')) && '1' || '0' }}
           WORLDBOX_EXTRACTOR_SOURCE_DIR: ${{ runner.temp }}/Il2CppMetadataExtractor
           WORLDBOX_EXTRACTOR_ARCHIVE: ${{ runner.temp }}/Il2CppMetadataExtractor-c31281b.zip
           WORLDBOX_FRIDA_SERVER: ${{ runner.temp }}/frida-server
           WORLDBOX_PROC_SCANNER: ${{ runner.temp }}/worldbox-proc-scan
         with:
-          api-level: 35
+          api-level: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') && '30' || '35' }}
           target: google_apis
-          arch: x86_64
+          arch: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') && 'arm64-v8a' || 'x86_64' }}
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
           script: PYTHONUNBUFFERED=1 python .github/scripts/inspect_worldbox.py

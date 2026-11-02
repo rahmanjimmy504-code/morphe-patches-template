@@ -77,6 +77,31 @@ class WorldBoxMemoryMetadataExtractorProbeTests(unittest.TestCase):
             self.assertEqual(report['dumpBytes'], 256)
             self.assertEqual(report['metadataVersion'], 31)
 
+    def test_runtime_diagnostics_are_filtered_and_bounded(self):
+        def fake_run(command, **kwargs):
+            key = tuple(command[1:])
+            output = {
+                ('shell', 'pidof', probe.PACKAGE): '4242',
+                ('shell', 'cat', '/proc/4242/status'): 'Name:\tworldbox\nState:\tT (stopped)\nTracerPid:\t0\nUid:\t0',
+                ('shell', 'readlink', '/proc/4242/exe'): '/system/bin/app_process64',
+                ('shell', 'cat', '/proc/4242/maps'): '7f00 r-xp 0 0:00 0 /vendor/lib64/libndk_translation.so\n7f01 r-xp 0 0:00 0 /data/app/libil2cpp.so',
+                ('shell', 'cat', '/data/local/tmp/worldbox-frida.log'): 'Error: unable to attach at 0x7ff123\nnormal startup',
+                ('shell', 'logcat', '-d', '-t', '400'): 'E frida: agent connection closed for com.mkarpenko.worldbox at 0x7ff123\nI unrelated: ignore me',
+            }
+            return subprocess.CompletedProcess(command, 0, output.get(key, ''), '')
+
+        with patch.object(probe.subprocess, 'run', side_effect=fake_run):
+            report = probe.collect_runtime_diagnostics('adb')
+        self.assertEqual(report['spawnedProcessPid'], 4242)
+        self.assertEqual(report['processStatus'], ['Name:\tworldbox', 'State:\tT (stopped)', 'TracerPid:\t0'])
+        self.assertEqual(report['processExecutable'], '/system/bin/app_process64')
+        self.assertTrue(report['nativeBridgeMapped'])
+        self.assertEqual(report['targetLibrariesMapped'], ['libil2cpp.so'])
+        self.assertIn('unable to attach at <address>', report['fridaServerLines'][0])
+        self.assertIn('agent connection closed', report['filteredLogcatLines'][0])
+        self.assertNotIn('0x7ff123', str(report))
+        self.assertLessEqual(len(report['filteredLogcatLines']), 12)
+
     def test_refuses_unverified_release_before_stopping_or_spawning_app(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
