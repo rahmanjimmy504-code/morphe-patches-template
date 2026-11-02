@@ -791,7 +791,9 @@ try:
             print('::notice title=WorldBox emulator::Supported ABIs: ' + abi + '; native bridge: ' + bridge)
             if 'arm64-v8a' not in abi:
                 raise RuntimeError('This emulator does not advertise arm64-v8a; the WorldBox bundle has no x86 split.')
-            if os.environ.get('WORLDBOX_METADATA_SCAN') == '1':
+            metadata_scan = os.environ.get('WORLDBOX_METADATA_SCAN') == '1'
+            memory_metadata_extractor = os.environ.get('WORLDBOX_MEMORY_METADATA_EXTRACTOR') == '1'
+            if metadata_scan or memory_metadata_extractor:
                 server = os.environ.get('WORLDBOX_FRIDA_SERVER')
                 if not server or not Path(server).is_file():
                     raise RuntimeError('Missing Frida server binary for emulator runtime scan.')
@@ -816,7 +818,7 @@ try:
                 failure = adb('logcat', '-d', '-s', 'AndroidRuntime:E', 'linker:E', 'Unity:E', check=False)[-2000:]
                 raise RuntimeError('Game process did not remain running: ' + failure)
             print('::notice title=WorldBox emulator::Game process remained running after 60 seconds (PID ' + pid + ')')
-            if os.environ.get('WORLDBOX_METADATA_SCAN') == '1':
+            if metadata_scan:
                 game_pid = pid.split()[0]
                 def restart_game(reason):
                     print('::notice title=WorldBox emulator::Restarting game before ' + reason, flush=True)
@@ -859,6 +861,23 @@ try:
                     print('::warning title=WorldBox proc metadata scan::' + json.dumps(result, separators=(',', ':')))
                     if result['candidates'] == 0:
                         print('::warning title=WorldBox metadata::No plausible header found; the scan may be incomplete.')
+            if memory_metadata_extractor:
+                if not native or not metadata or not base_apk:
+                    raise RuntimeError('Hash-gated base APK, ARM64 library, and metadata are required for the memory-extractor probe.')
+                output_root = Path(td) / 'memory-metadata-extractor-out'
+                command = [sys.executable, '.github/scripts/worldbox_memory_metadata_extractor_probe.py',
+                           '--archive', os.environ.get('WORLDBOX_EXTRACTOR_ARCHIVE', ''),
+                           '--source-dir', os.environ.get('WORLDBOX_EXTRACTOR_SOURCE_DIR', ''),
+                           '--base-apk', str(base_apk), '--native', str(native), '--metadata', str(metadata),
+                           '--output-dir', str(output_root), '--timeout', '180']
+                result = subprocess.run(command, capture_output=True, text=True, timeout=240)
+                if result.returncode:
+                    raise RuntimeError('Memory metadata extractor wrapper failed: ' + (result.stderr or result.stdout)[-1200:])
+                report = json.loads(result.stdout)
+                if report.get('kind') != 'worldbox-memory-metadata-extractor-probe':
+                    raise RuntimeError('Unexpected memory metadata extractor report.')
+                print('::warning title=WorldBox Frida metadata extractor::' +
+                      json.dumps(report, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
         if not native or not metadata:
             raise RuntimeError('Missing ARM64 native library or Unity metadata.')

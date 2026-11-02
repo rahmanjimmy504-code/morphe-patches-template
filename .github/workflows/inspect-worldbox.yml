@@ -16,6 +16,7 @@ on:
       - .github/scripts/worldbox_mfuscator_probe.py
       - .github/scripts/worldbox_il2cpp_dumper_probe.py
       - .github/scripts/worldbox_inspector_redux_probe.py
+      - .github/scripts/worldbox_memory_metadata_extractor_probe.py
       - .github/scripts/worldbox_upstream.py
       - .github/scripts/worldbox_string_leads.py
       - .github/scripts/worldbox_metadata_string_counts.py
@@ -36,6 +37,7 @@ on:
       - tests/test_worldbox_cpp2il_probe.py
       - tests/test_worldbox_mfuscator_probe.py
       - tests/test_worldbox_il2cpp_dumper_probe.py
+      - tests/test_worldbox_memory_metadata_extractor_probe.py
       - tests/test_worldbox_upstream.py
       - tests/test_worldbox_string_leads.py
       - tests/test_worldbox_metadata_string_counts.py
@@ -73,6 +75,7 @@ jobs:
           python3 tests/test_worldbox_mfuscator_probe.py
           python3 tests/test_worldbox_il2cpp_dumper_probe.py
           python3 tests/test_worldbox_inspector_redux_probe.py
+          python3 tests/test_worldbox_memory_metadata_extractor_probe.py
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
@@ -472,9 +475,9 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   runtime-probe:
-    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') }}
+    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') }}
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -491,6 +494,16 @@ jobs:
             NDK="$(find "$ANDROID_HOME/ndk" -mindepth 1 -maxdepth 1 -type d | sort -V | tail -1)"
           fi
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang" -std=c11 -Wall -Wextra -Werror -O2 docs/worldbox/proc_scan.c -o "$RUNNER_TEMP/worldbox-proc-scan"
+      - name: Download pinned Frida metadata extractor
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor]') }}
+        run: |
+          archive="$RUNNER_TEMP/Il2CppMetadataExtractor-c31281b.zip"
+          curl -fsSL --retry 3 -o "$archive" https://codeload.github.com/CameroonD/Il2CppMetadataExtractor/zip/c31281b43a67a1a7b17a255d930cd3fe8640f489
+          echo "56a1350f979f7beebe0e4cbda93b3f4db4c23221565e93bd2b3d6a8e3e8568d0  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/Il2CppMetadataExtractor"
+          unzip -q "$archive" -d "$RUNNER_TEMP/Il2CppMetadataExtractor"
+          test -f "$RUNNER_TEMP/Il2CppMetadataExtractor/Il2CppMetadataExtractor-c31281b43a67a1a7b17a255d930cd3fe8640f489/dump-metadata.py"
+          test -f "$RUNNER_TEMP/Il2CppMetadataExtractor/Il2CppMetadataExtractor-c31281b43a67a1a7b17a255d930cd3fe8640f489/dump-metadata.js"
       - name: Enable KVM
         run: |
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
@@ -498,13 +511,21 @@ jobs:
           sudo udevadm trigger --name-match=kvm
       - name: Probe original WorldBox on emulator
         uses: reactivecircus/android-emulator-runner@v2
+        env:
+          WORLDBOX_RUNTIME_PROBE: '1'
+          WORLDBOX_METADATA_SCAN: ${{ (vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]')) && '1' || '0' }}
+          WORLDBOX_MEMORY_METADATA_EXTRACTOR: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor]') && '1' || '0' }}
+          WORLDBOX_EXTRACTOR_SOURCE_DIR: ${{ runner.temp }}/Il2CppMetadataExtractor
+          WORLDBOX_EXTRACTOR_ARCHIVE: ${{ runner.temp }}/Il2CppMetadataExtractor-c31281b.zip
+          WORLDBOX_FRIDA_SERVER: ${{ runner.temp }}/frida-server
+          WORLDBOX_PROC_SCANNER: ${{ runner.temp }}/worldbox-proc-scan
         with:
           api-level: 35
           target: google_apis
           arch: x86_64
           emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot
           disable-animations: true
-          script: PYTHONUNBUFFERED=1 WORLDBOX_RUNTIME_PROBE=1 WORLDBOX_METADATA_SCAN=1 WORLDBOX_FRIDA_SERVER=$RUNNER_TEMP/frida-server WORLDBOX_PROC_SCANNER=$RUNNER_TEMP/worldbox-proc-scan python .github/scripts/inspect_worldbox.py
+          script: PYTHONUNBUFFERED=1 python .github/scripts/inspect_worldbox.py
   rea-android-probe:
     runs-on: ubuntu-latest
     timeout-minutes: 15
