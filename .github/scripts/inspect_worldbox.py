@@ -261,6 +261,13 @@ try:
                 compact = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
                            'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
                            'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                           'operationCounts': row.get('operationCounts', {}),
+                           'returnGraphs': [{'roots': graph.get('rootKinds', []),
+                                             'strings': graph.get('stringCategories', []),
+                                             'operations': sorted(graph.get('operationCounts', {})),
+                                             'nodes': graph.get('nodes'),
+                                             'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))}
+                                            for graph in row.get('returnGraphs', [])],
                            'stringCategories': row.get('stringCategories', []),
                            'calls': [{'site': call.get('site'), 'target': call.get('target'),
                                       'verifiedDirect': call.get('verifiedDirect'),
