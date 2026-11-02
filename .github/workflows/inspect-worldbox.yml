@@ -475,7 +475,7 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   runtime-probe:
-    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') || contains(github.event.head_commit.message, '[worldbox-proc-only]') }}
+    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') || contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -488,7 +488,7 @@ jobs:
         env:
           FRIDA_ANDROID_ARCH: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') && 'arm64' || 'x86_64' }}
           FRIDA_SERVER_XZ_SHA256: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') && 'd91f2f79231eef2f6e8189a1e99f074fab93f538fc9347e22e4ca39d1d475202' || '6ee3d9c23149d23df0fda27663dbb6ef9ad1aa2f6166dc5e6dbcab455bd83719' }}
-          WORLDBOX_PROC_ONLY: ${{ contains(github.event.head_commit.message, '[worldbox-proc-only]') && '1' || '0' }}
+          WORLDBOX_PROC_ONLY: ${{ (contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]')) && '1' || '0' }}
         run: |
           if [ "$WORLDBOX_PROC_ONLY" != '1' ]; then
             python -m pip install 'frida==17.25.0'
@@ -520,10 +520,11 @@ jobs:
         uses: reactivecircus/android-emulator-runner@v2
         env:
           WORLDBOX_RUNTIME_PROBE: '1'
-          WORLDBOX_METADATA_SCAN: ${{ contains(github.event.head_commit.message, '[worldbox-proc-only]') && '0' || ((vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]')) && '1' || '0') }}
+          WORLDBOX_METADATA_SCAN: ${{ (contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]')) && '0' || ((vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]')) && '1' || '0') }}
           WORLDBOX_MEMORY_METADATA_EXTRACTOR: ${{ (contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]')) && '1' || '0' }}
           WORLDBOX_MEMORY_METADATA_ATTACH_RUNNING: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') && '1' || '0' }}
-          WORLDBOX_PROC_ONLY_SCAN: ${{ contains(github.event.head_commit.message, '[worldbox-proc-only]') && '1' || '0' }}
+          WORLDBOX_PROC_ONLY_SCAN: ${{ (contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]')) && '1' || '0' }}
+          WORLDBOX_PROC_ONLY_ALL: ${{ contains(github.event.head_commit.message, '[worldbox-proc-all]') && '1' || '0' }}
           WORLDBOX_EXTRACTOR_SOURCE_DIR: ${{ runner.temp }}/Il2CppMetadataExtractor
           WORLDBOX_EXTRACTOR_ARCHIVE: ${{ runner.temp }}/Il2CppMetadataExtractor-c31281b.zip
           WORLDBOX_FRIDA_SERVER: ${{ runner.temp }}/frida-server
