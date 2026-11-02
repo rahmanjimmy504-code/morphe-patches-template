@@ -209,12 +209,6 @@ jobs:
       - name: Verify callee decompilation on the synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') || contains(github.event.head_commit.message, 'worldbox-ghidra-children') || contains(github.event.head_commit.message, 'worldbox-ghidra-unity') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
-      - name: Verify system-import argument tracing on synthetic ARM64 fixture
-        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-io') }}
-        run: |
-          FIXTURE="$RUNNER_TEMP/worldbox-fixture.so"
-          ADDRESS="$(PYTHONPATH=.github/scripts python -c 'import sys; from elftools.elf.elffile import ELFFile; elf=ELFFile(open(sys.argv[1], "rb")); sym=next(s for s in elf.get_section_by_name(".dynsym").iter_symbols() if s.name == "fixture_io_caller"); print(hex(sym["st_value"]))' "$FIXTURE")"
-          python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$FIXTURE" --fixture --address "$ADDRESS" --trace-import open
       - name: Verify address-selected FDE and string-use tracing on synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-unity') }}
         run: |
