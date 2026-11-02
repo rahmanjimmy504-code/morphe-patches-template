@@ -745,12 +745,12 @@ try:
             callers = flow.get('directWrapperCallers', {})
             flow_summary['directWrapperCallers'] = {'counts': callers.get('counts', {}),
                                                     'executableScanTruncated': callers.get('executableScanTruncated')}
-            tail_callers = flow.get('tailTargetCallers', {})
-            flow_summary['tailTargetCallers'] = {'counts': tail_callers.get('counts', {}),
-                                                 'executableScanTruncated': tail_callers.get('executableScanTruncated')}
+            direct_targets = flow.get('directTargetCallers', {})
+            flow_summary['directTargetCallers'] = {'counts': direct_targets.get('counts', {}),
+                                                   'executableScanTruncated': direct_targets.get('executableScanTruncated')}
             print('::warning title=WorldBox ARM64 file flow::' + json.dumps(flow_summary, separators=(',', ':')))
-            for detail in tail_callers.get('examples', []):
-                print('::warning title=WorldBox ARM64 tail-target caller::' + json.dumps(detail, separators=(',', ':')))
+            for detail in direct_targets.get('examples', []):
+                print('::warning title=WorldBox ARM64 internal-target caller::' + json.dumps(detail, separators=(',', ':')))
             xref_output = subprocess.run([sys.executable, '.github/scripts/worldbox_native_xrefs.py', str(native)],
                                          capture_output=True, text=True, timeout=360)
             if xref_output.returncode:
