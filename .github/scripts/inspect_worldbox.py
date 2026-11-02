@@ -261,6 +261,12 @@ try:
                     report.get('traceImportTargets', {}), separators=(',', ':')).replace('%', '%25'))
                 from worldbox_ghidra_callees import compact_callee
                 for row in report.get('functions', []):
+                    summary = {'entry': row.get('entry'), 'anchors': row.get('anchorSites', []),
+                               'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
+                               'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                               'indirectCallCount': row.get('indirectCallCount'),
+                               'stringCategories': row.get('stringCategories', [])}
+                    print('::notice title=WorldBox file-access FDE summary::' + json.dumps(summary, separators=(',', ':')))
                     print('::warning title=WorldBox file-access caller::' + compact_callee(row))
                 print('::warning title=WorldBox file-access Ghidra limitations::' + report.get('limitations', ''))
                 sys.exit(0)
