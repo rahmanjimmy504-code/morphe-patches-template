@@ -170,6 +170,17 @@ class FlowTest(unittest.TestCase):
         self.assertTrue(report['functions'][0]['calls'][0]['reachedInModel'])
         self.assertEqual(report['functions'][0]['calls'][0]['arguments']['x0'], ['entry-argument-0'])
 
+    def test_disassembly_is_limited_to_the_exact_unwind_fde(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True))
+            report = flow.disassemble_fde(path, 0x3000)
+            with self.assertRaises(ValueError):
+                flow.disassemble_fde(path, 0x3004)
+        self.assertEqual(report['entry'], '0x3000')
+        self.assertTrue(report['fullyDecoded'])
+        self.assertEqual([ins['mnemonic'] for ins in report['instructions']], ['bl', 'ret', 'nop'])
+
     def test_missing_unwind_is_inconclusive(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'fixture.so'

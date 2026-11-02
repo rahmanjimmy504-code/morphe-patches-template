@@ -280,6 +280,10 @@ try:
                            'truncated': row.get('truncated')}
                 print('::warning title=WorldBox focused helper predecessor::' +
                       json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
+            from worldbox_native_flow import disassemble_fde
+            instructions = disassemble_fde(native, 0x192ff8c)
+            print('::warning title=WorldBox focused helper predecessor instructions::' +
+                  json.dumps(instructions, separators=(',', ':')).replace('%', '%25'))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or

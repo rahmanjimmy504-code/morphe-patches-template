@@ -316,6 +316,37 @@ def frame_for_site(frames, starts, site):
     return min(matches, key=lambda item: item[1] - item[0]) if matches else None
 
 
+def disassemble_fde(path, address, max_size=256):
+    """Return operands for one unwind-bounded executable ARM64 FDE."""
+    with Path(path).open('rb') as handle:
+        elf = ELFFile(handle)
+        if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
+            raise ValueError('Expected a little-endian ELF64 AArch64 library')
+        eh = elf.get_section_by_name('.eh_frame')
+        if not eh or eh['sh_size'] > MAX_EH_SIZE:
+            raise ValueError('Missing or oversized unwind information')
+        dwarf = elf.get_dwarf_info()
+        frames = sorted((fde['initial_location'], fde['initial_location'] + fde['address_range'])
+                        for fde in dwarf.EH_CFI_entries() if isinstance(fde, FDE) and fde['address_range'])
+        starts = [lo for lo, _ in frames]
+        frame = frame_for_site(frames, starts, address)
+        if not frame or frame[0] != address or frame[1] - frame[0] > max_size:
+            raise ValueError('Address is not the entry of a small bounded FDE')
+        lo, hi = frame
+        section = next((item for item in elf.iter_sections()
+                        if item['sh_flags'] & 4 and item['sh_type'] != 'SHT_NOBITS' and
+                        item['sh_addr'] <= lo and hi <= item['sh_addr'] + item['sh_size']), None)
+        if section is None:
+            raise ValueError('FDE is not contained in an executable section')
+        handle.seek(section['sh_offset'] + lo - section['sh_addr'])
+        code = handle.read(hi - lo)
+        decoder = Cs(CS_ARCH_ARM64, CS_MODE_LITTLE_ENDIAN)
+        instructions = [{'address': hex(ins.address), 'mnemonic': ins.mnemonic, 'operands': ins.op_str}
+                        for ins in decoder.disasm(code, lo)]
+        return {'entry': hex(lo), 'size': hi - lo, 'decodedInstructions': len(instructions),
+                'fullyDecoded': len(instructions) * 4 == hi - lo, 'instructions': instructions}
+
+
 def inspect(path, sites=SITES):
     with Path(path).open('rb') as f:
         elf = ELFFile(f)
