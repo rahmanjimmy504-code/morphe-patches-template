@@ -271,7 +271,28 @@ try:
                                'indirectCallCount': row.get('indirectCallCount'),
                                'stringCategories': row.get('stringCategories', [])}
                     print('::notice title=WorldBox file-access FDE summary::' + json.dumps(summary, separators=(',', ':')))
-                    print('::warning title=WorldBox file-access caller::' + compact_callee(row))
+                    try:
+                        payload = compact_callee(row)
+                    except ValueError:
+                        calls = [{'site': call.get('site'), 'target': call.get('target'),
+                                  'verifiedDirect': call.get('verifiedDirect'),
+                                  'importCategory': call.get('importCategory')}
+                                 for call in row.get('calls', [])[:8]]
+                        traced = []
+                        for item in row.get('tracedTargetArguments', [])[:8]:
+                            operations = item.get('operations', {})
+                            traced.append({'site': item.get('site'), 'target': item.get('target'),
+                                'argumentIndex': item.get('argumentIndex'),
+                                'rootKinds': item.get('rootKinds', []),
+                                'inputRegisters': item.get('inputRegisters', []),
+                                'stringCategories': item.get('stringCategories', []),
+                                'operations': sorted(operations)[:8] if isinstance(operations, dict) else [],
+                                'nodes': item.get('nodes'), 'limited': item.get('limited')})
+                        payload = json.dumps({'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                            'status': row.get('status'), 'calls': calls, 'tracedTargetArguments': traced,
+                            'tracedArgumentsOmitted': max(0, len(row.get('tracedTargetArguments', [])) - len(traced)),
+                            'truncated': row.get('truncated')}, separators=(',', ':'))
+                    print('::warning title=WorldBox file-access caller::' + payload)
                 print('::warning title=WorldBox file-access Ghidra limitations::' + report.get('limitations', ''))
                 sys.exit(0)
             metadata_mode = os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1'
