@@ -284,6 +284,42 @@ try:
             instructions = disassemble_fde(native, 0x192ff8c)
             print('::warning title=WorldBox focused helper predecessor instructions::' +
                   json.dumps(instructions, separators=(',', ':')).replace('%', '%25'))
+            branch = instructions['instructions'][-1] if instructions['instructions'] else {}
+            if branch.get('mnemonic') == 'b' and branch.get('operands', '').startswith('#'):
+                branch_target = int(branch['operands'][1:], 0)
+                target_command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                                  '--headless', tool, '--binary', str(native), '--address', hex(branch_target)]
+                target_result = subprocess.run(target_command, capture_output=True, text=True, timeout=1000)
+                if target_result.returncode:
+                    print('::notice title=WorldBox helper branch destination::' + json.dumps(
+                        {'target': hex(branch_target), 'boundedFdeAvailable': False}, separators=(',', ':')))
+                else:
+                    target_report = json.loads(target_result.stdout)
+                    if target_report.get('kind') != 'ghidra-callees-probe':
+                        raise RuntimeError('Unexpected helper branch destination Ghidra report.')
+                    target_rows = target_report.get('functions', [])
+                    target_anchors = {site for row in target_rows for site in row.get('anchorSites', [])}
+                    if hex(branch_target) not in target_anchors:
+                        raise RuntimeError('Ghidra branch-destination report omitted the requested anchor.')
+                    for row in target_rows:
+                        compact = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                                   'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
+                                   'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                                   'operationCounts': row.get('operationCounts', {}),
+                                   'returnGraphs': [{'roots': graph.get('rootKinds', []),
+                                                     'strings': graph.get('stringCategories', []),
+                                                     'operations': sorted(graph.get('operationCounts', {})),
+                                                     'nodes': graph.get('nodes'),
+                                                     'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))}
+                                                    for graph in row.get('returnGraphs', [])],
+                                   'stringCategories': row.get('stringCategories', []),
+                                   'calls': [{'site': call.get('site'), 'target': call.get('target'),
+                                              'verifiedDirect': call.get('verifiedDirect'),
+                                              'importCategory': call.get('importCategory')}
+                                             for call in row.get('calls', [])[:10]],
+                                   'truncated': row.get('truncated')}
+                        print('::warning title=WorldBox helper branch destination::' +
+                              json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
