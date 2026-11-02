@@ -102,6 +102,15 @@ class WorldBoxMemoryMetadataExtractorProbeTests(unittest.TestCase):
         self.assertNotIn('0x7ff123', str(report))
         self.assertLessEqual(len(report['filteredLogcatLines']), 12)
 
+    def test_runtime_diagnostics_handle_missing_spawned_process(self):
+        with patch.object(probe.subprocess, 'run',
+                          side_effect=lambda command, **kwargs: subprocess.CompletedProcess(command, 0, '', '')):
+            report = probe.collect_runtime_diagnostics('adb')
+        self.assertIsNone(report['spawnedProcessPid'])
+        self.assertEqual(report['fridaServerLines'], [])
+        self.assertEqual(report['filteredLogcatLines'], [])
+        self.assertNotIn('processExecutable', report)
+
     def test_refuses_unverified_release_before_stopping_or_spawning_app(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
