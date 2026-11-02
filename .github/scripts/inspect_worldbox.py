@@ -330,6 +330,9 @@ try:
                     target_instructions = disassemble_fde(native, branch_target)
                     print('::warning title=WorldBox helper branch destination instructions::' +
                           json.dumps(target_instructions, separators=(',', ':')).replace('%', '%25'))
+                    adjacent_instructions = disassemble_fde(native, 0x1930028)
+                    print('::warning title=WorldBox adjacent conversion helper instructions::' +
+                          json.dumps(adjacent_instructions, separators=(',', ':')).replace('%', '%25'))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
