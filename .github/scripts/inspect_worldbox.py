@@ -279,7 +279,7 @@ try:
                                   'importCategory': call.get('importCategory')}
                                  for call in row.get('calls', [])[:8]]
                         traced = []
-                        for item in row.get('tracedTargetArguments', [])[:8]:
+                        for item in row.get('tracedTargetArguments', [])[:16]:
                             operations = item.get('operations', {})
                             traced.append({'site': item.get('site'), 'target': item.get('target'),
                                 'argumentIndex': item.get('argumentIndex'),
@@ -288,10 +288,16 @@ try:
                                 'stringCategories': item.get('stringCategories', []),
                                 'operations': sorted(operations)[:8] if isinstance(operations, dict) else [],
                                 'nodes': item.get('nodes'), 'limited': item.get('limited')})
-                        payload = json.dumps({'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                        fallback = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
                             'status': row.get('status'), 'calls': calls, 'tracedTargetArguments': traced,
                             'tracedArgumentsOmitted': max(0, len(row.get('tracedTargetArguments', [])) - len(traced)),
-                            'truncated': row.get('truncated')}, separators=(',', ':'))
+                            'truncated': row.get('truncated')}
+                        payload = json.dumps(fallback, separators=(',', ':'))
+                        while len(payload) > 3700 and traced:
+                            traced.pop()
+                            fallback['tracedArgumentsOmitted'] = max(
+                                0, len(row.get('tracedTargetArguments', [])) - len(traced))
+                            payload = json.dumps(fallback, separators=(',', ':'))
                     print('::warning title=WorldBox file-access caller::' + payload)
                 print('::warning title=WorldBox file-access Ghidra limitations::' + report.get('limitations', ''))
                 sys.exit(0)
