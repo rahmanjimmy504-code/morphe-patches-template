@@ -805,6 +805,32 @@ try:
                 adb('shell', 'chmod', '755', '/data/local/tmp/worldbox-frida-server')
                 adb('shell', 'nohup /data/local/tmp/worldbox-frida-server </dev/null >/data/local/tmp/worldbox-frida.log 2>&1 &')
                 time.sleep(8)
+                if memory_metadata_extractor:
+                    smoke_pid = adb('shell', 'sleep 180 >/dev/null 2>&1 & echo $!', check=False).strip()
+                    if smoke_pid.isdigit():
+                        try:
+                            smoke = subprocess.run([sys.executable, '.github/scripts/worldbox_runtime_scan.py',
+                                                    smoke_pid, '--smoke'], capture_output=True, text=True, timeout=90)
+                            arch = None
+                            prefix = '::notice title=Frida smoke test::'
+                            for line in smoke.stdout.splitlines():
+                                if line.startswith(prefix):
+                                    try:
+                                        arch = json.loads(line[len(prefix):]).get('arch')
+                                    except json.JSONDecodeError:
+                                        pass
+                            if smoke.returncode == 0 and arch:
+                                print('::notice title=Frida smoke test::' +
+                                      json.dumps({'attached': True, 'processArch': arch}, separators=(',', ':')))
+                            else:
+                                print('::warning title=Frida smoke test::' +
+                                      json.dumps({'attached': False, 'exitCode': smoke.returncode}, separators=(',', ':')))
+                        except subprocess.TimeoutExpired:
+                            print('::warning title=Frida smoke test::{"attached":false,"timedOut":true}')
+                        finally:
+                            adb('shell', 'kill', smoke_pid, check=False)
+                    else:
+                        print('::warning title=Frida smoke test::Could not start disposable comparison process.')
             base = Path(td) / 'base.apk'
             arm64 = Path(td) / 'split_config.arm64_v8a.apk'
             if not base.is_file() or not arm64.is_file():
