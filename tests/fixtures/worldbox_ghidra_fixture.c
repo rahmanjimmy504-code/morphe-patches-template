@@ -31,6 +31,12 @@ void *JNI_OnLoad(void *value, void *reserved) {
     return fixture_helper(value, reserved);
 }
 
+/* Synthetic generic-string fixture for bounded p-code argument tracing. */
+__attribute__((visibility("default"), noinline))
+void *fixture_generic_string_caller(void) {
+    return fixture_helper((void *)"worldbox-file-hint", (void *)"worldbox-file-hint");
+}
+
 /* Synthetic string-use fixture for bounded p-code argument tracing. */
 __attribute__((visibility("default"), noinline))
 void *fixture_string_caller(void) {

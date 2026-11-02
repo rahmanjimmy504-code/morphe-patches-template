@@ -86,6 +86,15 @@ public class WorldboxProbe extends GhidraScript {
             if (text.startsWith("assets/bin/data/")) return "unity-assets-path";
             if (text.startsWith("/proc/")) return "proc-path";
             if (text.equals("/dev/urandom") || text.equals("/dev/random")) return "system-random-device";
+            boolean terminated = end < n && bytes[end] == 0;
+            if (terminated && end >= 4) {
+                boolean printableAscii = true;
+                for (int i = 0; i < end; i++) {
+                    int valueByte = bytes[i] & 0xff;
+                    if (valueByte < 0x20 || valueByte > 0x7e) { printableAscii = false; break; }
+                }
+                if (printableAscii) return "printable-ascii-string";
+            }
         } catch (Exception ex) {
             // An integer constant is not necessarily an address or readable memory.
         }
