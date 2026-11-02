@@ -251,8 +251,10 @@ try:
                            '--headless', tool, '--binary', str(native),
                            '--address', '0x18ebdf0', '--address', '0x18ebec4',
                            '--address', '0x18ebf70', '--address', '0x18ebfb0',
+                           '--address', '0x18d3fd0',
                            '--trace-target', '0x3bf90c0', '--trace-target', '0x3bf9030',
-                           '--trace-target', '0x3bf9700', '--trace-target', '0x3bf9710']
+                           '--trace-target', '0x3bf9700', '--trace-target', '0x3bf9710',
+                           '--trace-target', '0x18ebcb4', '--trace-target', '0x18ebe74']
                 result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
                 if result.returncode:
                     raise RuntimeError('File-access Ghidra probe failed: ' + (result.stderr or result.stdout)[-1200:])
