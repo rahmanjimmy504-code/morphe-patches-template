@@ -289,7 +289,8 @@ try:
                 branch_target = int(branch['operands'][1:], 0)
                 target_command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
                                   '--headless', tool, '--binary', str(native), '--address', hex(branch_target),
-                                  '--trace-target', '0x3bf9130', '--trace-target', '0x1930028']
+                                  '--address', '0x1930028', '--trace-target', '0x3bf9130',
+                                  '--trace-target', '0x1930028', '--trace-target', '0x19a67d8']
                 target_result = subprocess.run(target_command, capture_output=True, text=True, timeout=1000)
                 if target_result.returncode:
                     print('::notice title=WorldBox helper branch destination::' + json.dumps(
