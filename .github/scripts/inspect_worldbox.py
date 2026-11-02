@@ -235,6 +235,46 @@ try:
                     print('::warning title=WorldBox libunity indirect-call dataflow::' + message.replace('%', '%25'))
             print('::warning title=WorldBox libunity Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_GHIDRA_HELPER_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native), '--address', '0x192ff8c',
+                       '--address', '0x1890508', '--trace-target', '0x192ff8c']
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1000)
+            if result.returncode:
+                raise RuntimeError('Focused helper-predecessor Ghidra probe failed: ' +
+                                   (result.stderr or result.stdout)[-1200:])
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'ghidra-callees-probe':
+                raise RuntimeError('Unexpected focused helper-predecessor Ghidra report.')
+            rows = report.get('functions', [])
+            anchors = {site for row in rows for site in row.get('anchorSites', [])}
+            if not {'0x192ff8c', '0x1890508'}.issubset(anchors):
+                raise RuntimeError('Focused Ghidra report omitted a requested anchor address.')
+            for row in rows:
+                compact = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                           'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
+                           'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                           'stringCategories': row.get('stringCategories', []),
+                           'calls': [{'site': call.get('site'), 'target': call.get('target'),
+                                      'verifiedDirect': call.get('verifiedDirect'),
+                                      'importCategory': call.get('importCategory')}
+                                     for call in row.get('calls', [])[:10]],
+                           'tracedTargetArguments': [{key: item.get(key) for key in
+                              ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds',
+                               'inputRegisters', 'nodes', 'limited')}
+                              for item in row.get('tracedTargetArguments', [])[:12]],
+                           'truncated': row.get('truncated')}
+                print('::warning title=WorldBox focused helper predecessor::' +
+                      json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
+            print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
+            sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
                 os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1' or
                 os.environ.get('WORLDBOX_GHIDRA_IO_PROBE') == '1'):
@@ -302,38 +342,6 @@ try:
                                 0, len(row.get('tracedTargetArguments', [])) - len(traced))
                             payload = json.dumps(fallback, separators=(',', ':'))
                     print('::warning title=WorldBox file-access caller::' + payload)
-                # Isolate the helper predecessor and its caller so the target's
-                # bounded FDE cannot be lost among the broader address batch.
-                focused_command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
-                    '--headless', tool, '--binary', str(native), '--address', '0x192ff8c',
-                    '--address', '0x1890508', '--trace-target', '0x192ff8c']
-                focused_result = subprocess.run(focused_command, capture_output=True, text=True, timeout=1000)
-                if focused_result.returncode:
-                    raise RuntimeError('Focused helper-predecessor Ghidra probe failed: ' +
-                                       (focused_result.stderr or focused_result.stdout)[-1200:])
-                focused = json.loads(focused_result.stdout)
-                if focused.get('kind') != 'ghidra-callees-probe':
-                    raise RuntimeError('Unexpected focused helper-predecessor Ghidra report.')
-                focused_rows = focused.get('functions', [])
-                anchors = {site for row in focused_rows for site in row.get('anchorSites', [])}
-                if not {'0x192ff8c', '0x1890508'}.issubset(anchors):
-                    raise RuntimeError('Focused Ghidra report omitted a requested anchor address.')
-                for row in focused_rows:
-                    compact = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
-                               'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
-                               'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
-                               'stringCategories': row.get('stringCategories', []),
-                               'calls': [{'site': call.get('site'), 'target': call.get('target'),
-                                          'verifiedDirect': call.get('verifiedDirect'),
-                                          'importCategory': call.get('importCategory')}
-                                         for call in row.get('calls', [])[:10]],
-                               'tracedTargetArguments': [{key: item.get(key) for key in
-                                  ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds',
-                                   'inputRegisters', 'nodes', 'limited')}
-                                  for item in row.get('tracedTargetArguments', [])[:12]],
-                               'truncated': row.get('truncated')}
-                    print('::warning title=WorldBox focused helper predecessor::' +
-                          json.dumps(compact, separators=(',', ':')))
                 print('::warning title=WorldBox file-access Ghidra limitations::' + report.get('limitations', ''))
                 sys.exit(0)
             metadata_mode = os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1'
