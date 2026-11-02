@@ -81,10 +81,12 @@ class WorldBoxMemoryMetadataExtractorProbeTests(unittest.TestCase):
         def fake_run(command, **kwargs):
             key = tuple(command[1:])
             output = {
+                ('get-state',): 'device',
                 ('shell', 'pidof', probe.PACKAGE): '4242',
+                ('shell', 'pidof', 'worldbox-frida-server'): '4001',
                 ('shell', 'cat', '/proc/4242/status'): 'Name:\tworldbox\nState:\tT (stopped)\nTracerPid:\t0\nUid:\t0',
                 ('shell', 'readlink', '/proc/4242/exe'): '/system/bin/app_process64',
-                ('shell', 'cat', '/proc/4242/maps'): '7f00 r-xp 0 0:00 0 /vendor/lib64/libndk_translation.so\n7f01 r-xp 0 0:00 0 /data/app/libil2cpp.so',
+                ('shell', 'grep', '-E', 'libndk_translation\\.so|libil2cpp\\.so|libunity\\.so', '/proc/4242/maps'): '7f00 r-xp 0 0:00 0 /vendor/lib64/libndk_translation.so\n7f01 r-xp 0 0:00 0 /data/app/libil2cpp.so',
                 ('shell', 'cat', '/data/local/tmp/worldbox-frida.log'): 'Error: unable to attach at 0x7ff123\nnormal startup',
                 ('shell', 'logcat', '-d', '-t', '400'): 'E frida: agent connection closed for com.mkarpenko.worldbox at 0x7ff123\nI unrelated: ignore me',
             }
@@ -92,7 +94,10 @@ class WorldBoxMemoryMetadataExtractorProbeTests(unittest.TestCase):
 
         with patch.object(probe.subprocess, 'run', side_effect=fake_run):
             report = probe.collect_runtime_diagnostics('adb')
+        self.assertEqual(report['adbState'], 'device')
         self.assertEqual(report['spawnedProcessPid'], 4242)
+        self.assertEqual(report['fridaServerPidProbeExitCode'], 0)
+        self.assertEqual(report['fridaServerPid'], '4001')
         self.assertEqual(report['processStatus'], ['Name:\tworldbox', 'State:\tT (stopped)', 'TracerPid:\t0'])
         self.assertEqual(report['processExecutable'], '/system/bin/app_process64')
         self.assertTrue(report['nativeBridgeMapped'])
@@ -103,9 +108,13 @@ class WorldBoxMemoryMetadataExtractorProbeTests(unittest.TestCase):
         self.assertLessEqual(len(report['filteredLogcatLines']), 12)
 
     def test_runtime_diagnostics_handle_missing_spawned_process(self):
-        with patch.object(probe.subprocess, 'run',
-                          side_effect=lambda command, **kwargs: subprocess.CompletedProcess(command, 0, '', '')):
+        def fake_run(command, **kwargs):
+            output = 'device' if command[1:] == ['get-state'] else ''
+            return subprocess.CompletedProcess(command, 0, output, '')
+
+        with patch.object(probe.subprocess, 'run', side_effect=fake_run):
             report = probe.collect_runtime_diagnostics('adb')
+        self.assertEqual(report['adbState'], 'device')
         self.assertIsNone(report['spawnedProcessPid'])
         self.assertEqual(report['fridaServerLines'], [])
         self.assertEqual(report['filteredLogcatLines'], [])

@@ -98,21 +98,35 @@ def diagnostic_lines(text):
     return _sanitize_lines(relevant)
 
 
-def _adb_text(adb, args, timeout=10):
+def _adb_result(adb, args, timeout=10):
     try:
-        result = subprocess.run([adb, *args], capture_output=True, text=True, timeout=timeout)
-        if result.returncode:
-            return ''
-        return result.stdout[:32_000]
-    except (OSError, subprocess.TimeoutExpired):
-        return ''
+        result = subprocess.run([adb, *args], capture_output=True, text=True,
+                                errors='replace', timeout=timeout)
+        stdout = result.stdout[-32_000:] if 'logcat' in args else result.stdout[:32_000]
+        return result.returncode, stdout, result.stderr[:2_000]
+    except subprocess.TimeoutExpired:
+        return 124, '', 'command timed out'
+    except OSError as exc:
+        return 127, '', type(exc).__name__
+
+
+def _adb_text(adb, args, timeout=10):
+    code, stdout, _ = _adb_result(adb, args, timeout)
+    return stdout if code == 0 else ''
 
 
 def collect_runtime_diagnostics(adb='adb'):
     """Collect a small, filtered snapshot before force-stopping a failed spawn."""
     details = {}
-    pid_text = _adb_text(adb, ['shell', 'pidof', PACKAGE]).strip()
-    pids = pid_text.split()
+    state_code, state_out, state_err = _adb_result(adb, ['get-state'])
+    details['adbState'] = (state_out.strip()[:32] or 'unknown') if state_code == 0 else 'unavailable'
+    if state_code:
+        details['adbStateError'] = _sanitize_lines([state_err], 1)
+    pid_code, pid_text, pid_error = _adb_result(adb, ['shell', 'pidof', PACKAGE])
+    details['gamePidProbeExitCode'] = pid_code
+    if pid_code and pid_error:
+        details['gamePidProbeError'] = _sanitize_lines([pid_error], 1)
+    pids = pid_text.strip().split()
     if pids and pids[0].isdigit():
         pid = pids[0]
         details['spawnedProcessPid'] = int(pid)
@@ -121,7 +135,9 @@ def collect_runtime_diagnostics(adb='adb'):
             if line.startswith(('Name:', 'State:', 'TracerPid:'))][:3]
         executable = _adb_text(adb, ['shell', 'readlink', f'/proc/{pid}/exe']).strip()
         details['processExecutable'] = executable[:160] if executable else None
-        maps = _adb_text(adb, ['shell', 'cat', f'/proc/{pid}/maps'])
+        maps = _adb_text(adb, ['shell', 'grep', '-E',
+                               'libndk_translation\\.so|libil2cpp\\.so|libunity\\.so',
+                               f'/proc/{pid}/maps'])
         details['nativeBridgeMapped'] = 'libndk_translation.so' in maps
         details['targetLibrariesMapped'] = [line.split()[-1].rsplit('/', 1)[-1]
             for line in maps.splitlines()
@@ -129,13 +145,26 @@ def collect_runtime_diagnostics(adb='adb'):
     else:
         details['spawnedProcessPid'] = None
 
-    server_log = _adb_text(adb, ['shell', 'cat', '/data/local/tmp/worldbox-frida.log'])
+    server_code, server_pids, server_error = _adb_result(adb, ['shell', 'pidof', 'worldbox-frida-server'])
+    details['fridaServerPidProbeExitCode'] = server_code
+    details['fridaServerPid'] = server_pids.strip()[:64] if server_code == 0 and server_pids.strip() else None
+    if server_code and server_error:
+        details['fridaServerPidProbeError'] = _sanitize_lines([server_error], 1)
+    server_log_code, server_log, server_log_error = _adb_result(
+        adb, ['shell', 'cat', '/data/local/tmp/worldbox-frida.log'])
+    details['fridaServerLogReadable'] = server_log_code == 0
+    if server_log_code and server_log_error:
+        details['fridaServerLogError'] = _sanitize_lines([server_log_error], 1)
     details['fridaServerLines'] = _sanitize_lines(
         [line for line in server_log.splitlines()
          if re.search(r'error|failed|attach|ptrace|process|transport|agent', line, re.I)], 8)
-    logcat = _adb_text(adb, ['shell', 'logcat', '-d', '-t', '400'])
+    logcat_code, logcat, logcat_error = _adb_result(adb, ['shell', 'logcat', '-d', '-t', '400'])
+    details['logcatReadable'] = logcat_code == 0
+    if logcat_code and logcat_error:
+        details['logcatReadError'] = _sanitize_lines([logcat_error], 1)
     relevant = [line for line in logcat.splitlines()
         if re.search(r'frida|mkarpenko\.worldbox|libndk_translation|AndroidRuntime|debuggerd|Fatal signal|avc: denied', line, re.I)]
+    details['logcatMatchCount'] = len(relevant)
     details['filteredLogcatLines'] = _sanitize_lines(relevant, 12)
     return details
 
