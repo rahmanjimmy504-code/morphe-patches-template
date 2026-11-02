@@ -793,14 +793,16 @@ try:
                 raise RuntimeError('This emulator does not advertise arm64-v8a; the WorldBox bundle has no x86 split.')
             metadata_scan = os.environ.get('WORLDBOX_METADATA_SCAN') == '1'
             memory_metadata_extractor = os.environ.get('WORLDBOX_MEMORY_METADATA_EXTRACTOR') == '1'
-            if metadata_scan or memory_metadata_extractor:
-                server = os.environ.get('WORLDBOX_FRIDA_SERVER')
-                if not server or not Path(server).is_file():
-                    raise RuntimeError('Missing Frida server binary for emulator runtime scan.')
+            proc_only_scan = os.environ.get('WORLDBOX_PROC_ONLY_SCAN') == '1'
+            if metadata_scan or memory_metadata_extractor or proc_only_scan:
                 adb('root')
                 adb('wait-for-device')
                 if adb('shell', 'id', '-u') != '0':
                     raise RuntimeError('Emulator adbd is not running as root.')
+            if metadata_scan or memory_metadata_extractor:
+                server = os.environ.get('WORLDBOX_FRIDA_SERVER')
+                if not server or not Path(server).is_file():
+                    raise RuntimeError('Missing Frida server binary for emulator runtime scan.')
                 adb('push', server, '/data/local/tmp/worldbox-frida-server')
                 adb('shell', 'chmod', '755', '/data/local/tmp/worldbox-frida-server')
                 adb('shell', 'nohup /data/local/tmp/worldbox-frida-server </dev/null >/data/local/tmp/worldbox-frida.log 2>&1 &')
@@ -887,6 +889,19 @@ try:
                     print('::warning title=WorldBox proc metadata scan::' + json.dumps(result, separators=(',', ':')))
                     if result['candidates'] == 0:
                         print('::warning title=WorldBox metadata::No plausible header found; the scan may be incomplete.')
+            if proc_only_scan:
+                helper = os.environ.get('WORLDBOX_PROC_SCANNER')
+                if not helper or not Path(helper).is_file():
+                    raise RuntimeError('The /proc scanner binary is missing for proc-only scan.')
+                game_pid = pid.split()[0]
+                adb('push', helper, '/data/local/tmp/worldbox-proc-scan')
+                adb('shell', 'chmod', '755', '/data/local/tmp/worldbox-proc-scan')
+                result = json.loads(adb('shell', '/data/local/tmp/worldbox-proc-scan', game_pid,
+                                        '--resident-and-swapped', timeout=360))
+                if result.get('kind') != 'result':
+                    raise RuntimeError('Unexpected /proc scanner response.')
+                print('::warning title=WorldBox proc-only memory scan::' +
+                      json.dumps(result, separators=(',', ':')).replace('%', '%25'))
             if memory_metadata_extractor:
                 if not native or not metadata or not base_apk:
                     raise RuntimeError('Hash-gated base APK, ARM64 library, and metadata are required for the memory-extractor probe.')
