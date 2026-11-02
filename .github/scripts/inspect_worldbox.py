@@ -235,7 +235,7 @@ try:
                     print('::warning title=WorldBox libunity indirect-call dataflow::' + message.replace('%', '%25'))
             print('::warning title=WorldBox libunity Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
-        if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1':
+        if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
             with native.open('rb') as f:
@@ -243,6 +243,32 @@ try:
             if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
             tool = os.environ.get('GHIDRA_HEADLESS', '')
+            metadata_mode = os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1'
+            if metadata_mode:
+                command = [sys.executable, '.github/scripts/worldbox_metadata_magic_probe.py',
+                           '--headless', tool, '--binary', str(native)]
+                result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+                if result.returncode:
+                    raise RuntimeError('Metadata magic/Ghidra probe failed: ' + (result.stderr or result.stdout)[-1200:])
+                report = json.loads(result.stdout)
+                if report.get('kind') != 'worldbox-il2cpp-metadata-magic-probe':
+                    raise RuntimeError('Unexpected IL2CPP metadata magic report.')
+                print('::warning title=WorldBox IL2CPP metadata magic scan::' + json.dumps({
+                    'sha256': report['scan']['sha256'], 'fileSize': report['scan']['fileSize'],
+                    'hitCount': report['scan']['hitCount'], 'hitsTruncated': report['scan']['hitsTruncated'],
+                    'hits': report['scan']['hits'], 'dataTargets': report['dataTargets'],
+                    'referenceCount': report['referenceCount'], 'referencesTruncated': report['referencesTruncated']
+                }, separators=(',', ':')).replace('%', '%25'))
+                ghidra_report = report.get('ghidra')
+                if ghidra_report:
+                    from worldbox_ghidra_callees import compact_callee
+                    for row in ghidra_report.get('functions', []):
+                        print('::warning title=WorldBox metadata magic reference caller::' + compact_callee(row))
+                    print('::warning title=WorldBox metadata magic Ghidra limitations::' + ghidra_report.get('limitations', ''))
+                else:
+                    print('::notice title=WorldBox metadata magic follow-up::No bounded ADRP+ADD references to allocated, non-executable magic hits were found; Ghidra was not run.')
+                print('::notice title=WorldBox metadata magic limitations::' + report['limitations'])
+                sys.exit(0)
             origin_mode = os.environ.get('WORLDBOX_GHIDRA_ORIGIN_PROBE') == '1'
             tail_mode = os.environ.get('WORLDBOX_GHIDRA_TAIL_PROBE') == '1'
             return_mode = os.environ.get('WORLDBOX_GHIDRA_RETURN_PROBE') == '1'
