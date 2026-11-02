@@ -475,7 +475,7 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   runtime-probe:
-    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') }}
+    if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -499,7 +499,7 @@ jobs:
           fi
           "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/x86_64-linux-android24-clang" -std=c11 -Wall -Wextra -Werror -O2 docs/worldbox/proc_scan.c -o "$RUNNER_TEMP/worldbox-proc-scan"
       - name: Download pinned Frida metadata extractor
-        if: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') }}
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') }}
         run: |
           archive="$RUNNER_TEMP/Il2CppMetadataExtractor-c31281b.zip"
           curl -fsSL --retry 3 -o "$archive" https://codeload.github.com/CameroonD/Il2CppMetadataExtractor/zip/c31281b43a67a1a7b17a255d930cd3fe8640f489
@@ -518,7 +518,8 @@ jobs:
         env:
           WORLDBOX_RUNTIME_PROBE: '1'
           WORLDBOX_METADATA_SCAN: ${{ (vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]')) && '1' || '0' }}
-          WORLDBOX_MEMORY_METADATA_EXTRACTOR: ${{ (contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]')) && '1' || '0' }}
+          WORLDBOX_MEMORY_METADATA_EXTRACTOR: ${{ (contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]')) && '1' || '0' }}
+          WORLDBOX_MEMORY_METADATA_ATTACH_RUNNING: ${{ contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') && '1' || '0' }}
           WORLDBOX_EXTRACTOR_SOURCE_DIR: ${{ runner.temp }}/Il2CppMetadataExtractor
           WORLDBOX_EXTRACTOR_ARCHIVE: ${{ runner.temp }}/Il2CppMetadataExtractor-c31281b.zip
           WORLDBOX_FRIDA_SERVER: ${{ runner.temp }}/frida-server

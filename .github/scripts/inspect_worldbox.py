@@ -870,6 +870,8 @@ try:
                            '--source-dir', os.environ.get('WORLDBOX_EXTRACTOR_SOURCE_DIR', ''),
                            '--base-apk', str(base_apk), '--native', str(native), '--metadata', str(metadata),
                            '--output-dir', str(output_root), '--timeout', '180']
+                if os.environ.get('WORLDBOX_MEMORY_METADATA_ATTACH_RUNNING') == '1':
+                    command.append('--attach-running')
                 result = subprocess.run(command, capture_output=True, text=True, timeout=240)
                 if result.returncode:
                     raise RuntimeError('Memory metadata extractor wrapper failed: ' + (result.stderr or result.stdout)[-1200:])

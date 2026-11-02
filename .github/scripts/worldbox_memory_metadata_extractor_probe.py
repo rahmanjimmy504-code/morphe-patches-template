@@ -211,8 +211,64 @@ def collect_runtime_diagnostics(adb='adb'):
     return details
 
 
+def run_attached_extractor(js_script, dump_path, timeout, adb):
+    """Run the pinned scan JS against an already-running process, without Frida spawn."""
+    import threading
+    import frida
+
+    pids = _adb_text(adb, ['shell', 'pidof', PACKAGE]).split()
+    if not pids or not pids[0].isdigit():
+        raise RuntimeError('WorldBox is not running for attach-to-running probe')
+    device = frida.get_usb_device(timeout=20)
+    session = device.attach(int(pids[0]))
+    script = None
+    messages = []
+    state = {}
+    completed = threading.Event()
+
+    def on_message(message, data):
+        if message.get('type') == 'send' and data is not None:
+            try:
+                Path(dump_path).write_bytes(bytes(data))
+                completed.set()
+            except OSError as exc:
+                state['error'] = f'Dump write failed: {type(exc).__name__}'
+                completed.set()
+        elif message.get('type') == 'error':
+            state['error'] = str(message.get('description', 'Frida script error'))[:240]
+            completed.set()
+        elif message.get('type') == 'log':
+            payload = message.get('payload')
+            if isinstance(payload, str) and len(messages) < 12:
+                messages.append(payload[:240])
+
+    try:
+        settings = (f"const metadataFunctionOffset=ptr(0x0); "
+                    f"const fileSize={EXPECTED_METADATA_BYTES}; "
+                    "const filePattern='af 1b b1 fa 1? 00 00 00 00';\n")
+        source = settings + Path(js_script).read_text(encoding='utf-8')
+        script = session.create_script(source)
+        script.on('message', on_message)
+        script.load()
+        if not completed.wait(timeout):
+            raise TimeoutError('Timed out waiting for the attached Frida scan')
+        if state.get('error'):
+            raise RuntimeError(state['error'])
+        return '\n'.join(messages)
+    finally:
+        if script is not None:
+            try:
+                script.unload()
+            except Exception:
+                pass
+        try:
+            session.detach()
+        except Exception:
+            pass
+
+
 def run_probe(archive_path, source_dir, base_apk, native, raw_metadata,
-              output_dir, timeout=180, adb='adb'):
+              output_dir, timeout=180, adb='adb', attach_running=False):
     archive_path, source_dir, base_apk, native, raw_metadata = map(Path,
         (archive_path, source_dir, base_apk, native, raw_metadata))
     output_dir = Path(output_dir)
@@ -237,29 +293,44 @@ def run_probe(archive_path, source_dir, base_apk, native, raw_metadata,
     output_dir.mkdir(parents=True, exist_ok=True)
     dump_path = output_dir / 'global-metadata.dump.dat'
     py_script = source_dir / f'Il2CppMetadataExtractor-{TOOL_COMMIT}' / 'dump-metadata.py'
-    # Ensure the old game process cannot collide with the tool's controlled spawn.
-    stop = subprocess.run([adb, 'shell', 'am', 'force-stop', PACKAGE], capture_output=True, text=True, timeout=30)
-    if stop.returncode:
-        raise RuntimeError('Could not stop the existing WorldBox process before Frida spawn')
+    # Spawn mode owns the process lifecycle; running-process mode intentionally attaches to the live app.
+    if not attach_running:
+        stop = subprocess.run([adb, 'shell', 'am', 'force-stop', PACKAGE],
+                              capture_output=True, text=True, timeout=30)
+        if stop.returncode:
+            raise RuntimeError('Could not stop the existing WorldBox process before Frida spawn')
 
     timed_out = False
     combined_log = ''
     runtime_diagnostics = None
     returncode = 125
     try:
-        result = subprocess.run([sys.executable, str(py_script), PACKAGE,
-                                 '--size', str(EXPECTED_METADATA_BYTES)],
-                                cwd=output_dir, capture_output=True, text=True, timeout=timeout)
-        returncode = result.returncode
-        combined_log = (result.stdout or '') + '\n' + (result.stderr or '')
+        if attach_running:
+            combined_log = run_attached_extractor(
+                source_dir / f'Il2CppMetadataExtractor-{TOOL_COMMIT}' / 'dump-metadata.js',
+                dump_path, timeout, adb)
+            returncode = 0
+        else:
+            result = subprocess.run([sys.executable, str(py_script), PACKAGE,
+                                     '--size', str(EXPECTED_METADATA_BYTES)],
+                                    cwd=output_dir, capture_output=True, text=True, timeout=timeout)
+            returncode = result.returncode
+            combined_log = (result.stdout or '') + '\n' + (result.stderr or '')
     except subprocess.TimeoutExpired as exc:
         timed_out = True
         out = exc.stdout.decode(errors='replace') if isinstance(exc.stdout, bytes) else (exc.stdout or '')
         err = exc.stderr.decode(errors='replace') if isinstance(exc.stderr, bytes) else (exc.stderr or '')
         combined_log = out + '\n' + err
+    except TimeoutError as exc:
+        timed_out = True
+        returncode = 124
+        combined_log = str(exc)
     except OSError as exc:
         returncode = 127
         combined_log = f'Extractor launch failed: {type(exc).__name__}'
+    except Exception as exc:
+        returncode = 1
+        combined_log = f'{type(exc).__name__}: {exc}'
     finally:
         if not classify(returncode, dump_path, timed_out)['metadataCandidateValidated']:
             try:
@@ -276,6 +347,7 @@ def run_probe(archive_path, source_dir, base_apk, native, raw_metadata,
         'kind': 'worldbox-memory-metadata-extractor-probe',
         'tool': REPOSITORY,
         'toolCommit': TOOL_COMMIT,
+        'driverMode': 'attach-running' if attach_running else 'spawn-before-attach',
         'toolArchiveSha256': sha256(archive_path),
         'rawMetadataSha256': sha256(raw_metadata),
         'baseApkSha256': sha256(base_apk),
@@ -298,9 +370,11 @@ def main():
     parser.add_argument('--output-dir', required=True)
     parser.add_argument('--timeout', type=int, default=180)
     parser.add_argument('--adb', default='adb')
+    parser.add_argument('--attach-running', action='store_true',
+                        help='Attach to the already-running app instead of using device.spawn')
     args = parser.parse_args()
     print(json.dumps(run_probe(args.archive, args.source_dir, args.base_apk, args.native,
-        args.metadata, args.output_dir, args.timeout, args.adb), separators=(',', ':')))
+        args.metadata, args.output_dir, args.timeout, args.adb, args.attach_running), separators=(',', ':')))
 
 
 if __name__ == '__main__':

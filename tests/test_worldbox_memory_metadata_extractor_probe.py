@@ -74,6 +74,7 @@ class WorldBoxMemoryMetadataExtractorProbeTests(unittest.TestCase):
 
             self.assertTrue(report['metadataCandidateValidated'])
             self.assertEqual(report['toolCommit'], probe.TOOL_COMMIT)
+            self.assertEqual(report['driverMode'], 'spawn-before-attach')
             self.assertEqual(report['dumpBytes'], 256)
             self.assertEqual(report['metadataVersion'], 31)
 
@@ -122,6 +123,47 @@ backtrace:
         self.assertIn('agent connection closed', report['filteredLogcatLines'][0])
         self.assertNotIn('0x7ff123', str(report))
         self.assertLessEqual(len(report['filteredLogcatLines']), 12)
+
+    def test_attach_running_uses_live_pid_and_pinned_scan_script(self):
+        created_sources = []
+
+        class FakeScript:
+            def on(self, name, callback):
+                self.callback = callback
+            def load(self):
+                self.callback({'type': 'send', 'payload': 'dump ready'}, metadata_bytes())
+            def unload(self):
+                pass
+
+        class FakeSession:
+            def create_script(self, source):
+                created_sources.append(source)
+                return FakeScript()
+            def detach(self):
+                pass
+
+        class FakeDevice:
+            def attach(self, pid):
+                self.pid = pid
+                return FakeSession()
+
+        device = FakeDevice()
+        fake_frida = type('FakeFrida', (), {'get_usb_device': staticmethod(lambda timeout: device)})
+        with tempfile.TemporaryDirectory() as td:
+            js_path = Path(td) / 'dump-metadata.js'
+            js_path.write_text('// pinned script fixture', encoding='utf-8')
+            dump_path = Path(td) / 'dump.dat'
+            with (
+                patch.dict(sys.modules, {'frida': fake_frida}),
+                patch.object(probe.subprocess, 'run',
+                             return_value=subprocess.CompletedProcess(['adb'], 0, '1234', '')),
+                patch.object(probe, 'EXPECTED_METADATA_BYTES', 256),
+            ):
+                probe.run_attached_extractor(js_path, dump_path, 2, 'adb')
+            self.assertEqual(device.pid, 1234)
+            self.assertIn('fileSize=256', created_sources[0])
+            self.assertIn("filePattern='af 1b b1 fa 1? 00 00 00 00'", created_sources[0])
+            self.assertEqual(dump_path.read_bytes(), metadata_bytes())
 
     def test_runtime_diagnostics_handle_missing_spawned_process(self):
         def fake_run(command, **kwargs):
