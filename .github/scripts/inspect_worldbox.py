@@ -235,7 +235,9 @@ try:
                     print('::warning title=WorldBox libunity indirect-call dataflow::' + message.replace('%', '%25'))
             print('::warning title=WorldBox libunity Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
-        if os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1':
+        if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
+                os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1' or
+                os.environ.get('WORLDBOX_GHIDRA_IO_PROBE') == '1'):
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
             with native.open('rb') as f:
@@ -243,6 +245,27 @@ try:
             if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
                 raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
             tool = os.environ.get('GHIDRA_HEADLESS', '')
+            io_mode = os.environ.get('WORLDBOX_GHIDRA_IO_PROBE') == '1'
+            if io_mode:
+                command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                           '--headless', tool, '--binary', str(native),
+                           '--address', '0x18ebdf0', '--address', '0x18ebec4',
+                           '--address', '0x18ebf70', '--address', '0x18ebfb0',
+                           '--trace-import', 'open', '--trace-import', 'fstat',
+                           '--trace-import', 'mmap', '--trace-import', 'munmap']
+                result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+                if result.returncode:
+                    raise RuntimeError('File-access Ghidra probe failed: ' + (result.stderr or result.stdout)[-1200:])
+                report = json.loads(result.stdout)
+                if report.get('kind') != 'ghidra-callees-probe':
+                    raise RuntimeError('Unexpected file-access Ghidra report.')
+                print('::warning title=WorldBox file-access import targets::' + json.dumps(
+                    report.get('traceImportTargets', {}), separators=(',', ':')).replace('%', '%25'))
+                from worldbox_ghidra_callees import compact_callee
+                for row in report.get('functions', []):
+                    print('::warning title=WorldBox file-access caller::' + compact_callee(row))
+                print('::warning title=WorldBox file-access Ghidra limitations::' + report.get('limitations', ''))
+                sys.exit(0)
             metadata_mode = os.environ.get('WORLDBOX_GHIDRA_METADATA_PROBE') == '1'
             if metadata_mode:
                 command = [sys.executable, '.github/scripts/worldbox_metadata_magic_probe.py',

@@ -207,8 +207,14 @@ jobs:
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') }}
         run: python .github/scripts/worldbox_ghidra_probe.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture --input-chain
       - name: Verify callee decompilation on the synthetic ARM64 fixture
-        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') || contains(github.event.head_commit.message, 'worldbox-ghidra-children') || contains(github.event.head_commit.message, 'worldbox-ghidra-unity') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') }}
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-callee') || contains(github.event.head_commit.message, 'worldbox-ghidra-origin') || contains(github.event.head_commit.message, 'worldbox-ghidra-tail') || contains(github.event.head_commit.message, 'worldbox-ghidra-return') || contains(github.event.head_commit.message, 'worldbox-ghidra-input') || contains(github.event.head_commit.message, 'worldbox-ghidra-children') || contains(github.event.head_commit.message, 'worldbox-ghidra-unity') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') }}
         run: python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$RUNNER_TEMP/worldbox-fixture.so" --fixture
+      - name: Verify system-import argument tracing on synthetic ARM64 fixture
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-io') }}
+        run: |
+          FIXTURE="$RUNNER_TEMP/worldbox-fixture.so"
+          ADDRESS="$(PYTHONPATH=.github/scripts python -c 'import sys; from elftools.elf.elffile import ELFFile; elf=ELFFile(open(sys.argv[1], "rb")); sym=next(s for s in elf.get_section_by_name(".dynsym").iter_symbols() if s.name == "fixture_io_caller"); print(hex(sym["st_value"]))' "$FIXTURE")"
+          python .github/scripts/worldbox_ghidra_callees.py --headless "$GHIDRA_HEADLESS" --binary "$FIXTURE" --fixture --address "$ADDRESS" --trace-import open
       - name: Verify address-selected FDE and string-use tracing on synthetic ARM64 fixture
         if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-unity') }}
         run: |
@@ -232,8 +238,9 @@ jobs:
           WORLDBOX_GHIDRA_SOURCE_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-source') && '1' || '0' }}
           WORLDBOX_GHIDRA_CHAIN_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-chain') && '1' || '0' }}
           WORLDBOX_GHIDRA_METADATA_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') && '1' || '0' }}
+          WORLDBOX_GHIDRA_IO_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-io') && '1' || '0' }}
           WORLDBOX_GHIDRA_ARMV7_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '1' || '0' }}
-          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata')) && '0' || '1' }}
+          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io')) && '0' || '1' }}
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   upstream-arm64-probe:
