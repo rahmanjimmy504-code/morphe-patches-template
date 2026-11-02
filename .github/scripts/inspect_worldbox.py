@@ -252,7 +252,7 @@ try:
                            '--address', '0x18ebdf0', '--address', '0x18ebec4',
                            '--address', '0x18ebf70', '--address', '0x18ebfb0',
                            '--address', '0x18eb1a0', '--address', '0x18d3fd0', '--address', '0x18a8b60',
-                           '--address', '0x18fad2c', '--address', '0x19022fc',
+                           '--address', '0x18fad2c', '--address', '0x19022fc', '--address', '0x1890524',
                            '--address', '0x1902fbc', '--trace-target', '0x18d3dd0',
                            '--trace-target', '0x3bf90c0', '--trace-target', '0x3bf9030',
                            '--trace-target', '0x3bf9700', '--trace-target', '0x3bf9710',
