@@ -115,6 +115,47 @@ def _adb_text(adb, args, timeout=10):
     return stdout if code == 0 else ''
 
 
+def summarize_crash_tombstone(text):
+    """Keep only architecture, signal class, and bounded backtrace module names."""
+    summary = {}
+    for line in text.splitlines():
+        match = re.match(r"\s*ABI:\s*['\"]?([^'\"\s]+)", line)
+        if match:
+            summary['abi'] = match.group(1)[:32]
+            break
+    for line in text.splitlines():
+        if 'signal' in line and 'SIG' in line:
+            match = re.search(r'signal\s+(\d+)\s+\((SIG[A-Z0-9]+)\)(?:,\s*code\s+(\d+))?', line)
+            if match:
+                summary['signal'] = {'number': int(match.group(1)), 'name': match.group(2),
+                                     'code': int(match.group(3)) if match.group(3) else None}
+            break
+    frames = []
+    for line in text.splitlines():
+        match = re.match(r'\s*#\d+\s+pc\s+[0-9a-fA-F]+\s+([^\s(]+)', line)
+        if match:
+            module_path = match.group(1)
+            frames.append(module_path.rsplit('/', 1)[-1][:100])
+        if len(frames) >= 8:
+            break
+    if frames:
+        summary['backtraceModules'] = frames
+    return summary
+
+
+def collect_crash_tombstone(adb='adb'):
+    names = _adb_text(adb, ['shell', 'ls', '-1t', '/data/tombstones']).splitlines()[:5]
+    for name in names:
+        if not re.fullmatch(r'tombstone_\d+', name.strip()):
+            continue
+        code, text, _ = _adb_result(adb, ['shell', 'cat', f'/data/tombstones/{name.strip()}'])
+        if code == 0 and PACKAGE in text:
+            summary = summarize_crash_tombstone(text)
+            if summary:
+                return summary
+    return None
+
+
 def collect_runtime_diagnostics(adb='adb'):
     """Collect a small, filtered snapshot before force-stopping a failed spawn."""
     details = {}
@@ -166,6 +207,7 @@ def collect_runtime_diagnostics(adb='adb'):
         if re.search(r'frida|mkarpenko\.worldbox|libndk_translation|AndroidRuntime|debuggerd|Fatal signal|avc: denied', line, re.I)]
     details['logcatMatchCount'] = len(relevant)
     details['filteredLogcatLines'] = _sanitize_lines(relevant, 12)
+    details['targetCrashTombstone'] = collect_crash_tombstone(adb)
     return details
 
 

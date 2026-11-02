@@ -77,6 +77,22 @@ class WorldBoxMemoryMetadataExtractorProbeTests(unittest.TestCase):
             self.assertEqual(report['dumpBytes'], 256)
             self.assertEqual(report['metadataVersion'], 31)
 
+    def test_crash_tombstone_summary_keeps_modules_not_addresses(self):
+        tombstone = '''
+ABI: 'x86_64'
+Cmdline: com.mkarpenko.worldbox
+signal 11 (SIGSEGV), code 2 (SEGV_ACCERR), fault addr 0x7ff123
+backtrace:
+  #00 pc 0000000000012345 /vendor/lib64/libndk_translation.so (translate+42)
+  #01 pc 000000000006789a /system/lib64/libc.so (abort+10)
+'''
+        report = probe.summarize_crash_tombstone(tombstone)
+        self.assertEqual(report['abi'], 'x86_64')
+        self.assertEqual(report['signal'], {'number': 11, 'name': 'SIGSEGV', 'code': 2})
+        self.assertEqual(report['backtraceModules'], ['libndk_translation.so', 'libc.so'])
+        self.assertNotIn('0x7ff123', str(report))
+        self.assertNotIn('0000000000012345', str(report))
+
     def test_runtime_diagnostics_are_filtered_and_bounded(self):
         def fake_run(command, **kwargs):
             key = tuple(command[1:])
