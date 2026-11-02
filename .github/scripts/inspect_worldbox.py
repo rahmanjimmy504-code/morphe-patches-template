@@ -288,7 +288,8 @@ try:
             if branch.get('mnemonic') == 'b' and branch.get('operands', '').startswith('#'):
                 branch_target = int(branch['operands'][1:], 0)
                 target_command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
-                                  '--headless', tool, '--binary', str(native), '--address', hex(branch_target)]
+                                  '--headless', tool, '--binary', str(native), '--address', hex(branch_target),
+                                  '--trace-target', '0x3bf9130', '--trace-target', '0x1930028']
                 target_result = subprocess.run(target_command, capture_output=True, text=True, timeout=1000)
                 if target_result.returncode:
                     print('::notice title=WorldBox helper branch destination::' + json.dumps(
@@ -317,9 +318,17 @@ try:
                                               'verifiedDirect': call.get('verifiedDirect'),
                                               'importCategory': call.get('importCategory')}
                                              for call in row.get('calls', [])[:10]],
+                                   'tracedTargetArguments': [{key: item.get(key) for key in
+                                      ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds',
+                                       'inputRegisters', 'nodes', 'limited')}
+                                      for item in row.get('tracedTargetArguments', [])[:12]],
                                    'truncated': row.get('truncated')}
                         print('::warning title=WorldBox helper branch destination::' +
                               json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
+                    from worldbox_native_flow import disassemble_fde
+                    target_instructions = disassemble_fde(native, branch_target)
+                    print('::warning title=WorldBox helper branch destination instructions::' +
+                          json.dumps(target_instructions, separators=(',', ':')).replace('%', '%25'))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
