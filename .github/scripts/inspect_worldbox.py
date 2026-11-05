@@ -341,14 +341,21 @@ try:
                           json.dumps(file_helper_instructions, separators=(',', ':')).replace('%', '%25'))
                     open_sequence = [item for item in file_helper_instructions['instructions']
                                      if 0x18eb28c <= int(item['address'], 16) <= 0x18eb3d0]
-                    chunks = (len(open_sequence) + 19) // 20
-                    for index in range(0, len(open_sequence), 20):
-                        bounded = {'entry': file_helper_instructions['entry'],
-                                   'range': ['0x18eb28c', '0x18eb3d0'],
-                                   'chunk': [index // 20 + 1, chunks],
-                                   'instructions': open_sequence[index:index + 20]}
-                        print('::warning title=WorldBox file-helper open sequence::' +
-                              json.dumps(bounded, separators=(',', ':')).replace('%', '%25'))
+                    lines = [f"{item['address']} {item['mnemonic']} {item['operands']}".strip().replace('%', '%25')
+                             for item in open_sequence]
+                    parts, current = [], []
+                    for line in lines:
+                        candidate = current + [line]
+                        if current and len('|'.join(candidate)) > 3400:
+                            parts.append(current)
+                            current = [line]
+                        else:
+                            current = candidate
+                    if current:
+                        parts.append(current)
+                    for number, part in enumerate(parts, 1):
+                        print(f'::warning title=WorldBox file-helper open sequence {number}/{len(parts)}::' +
+                              '|'.join(part))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
@@ -898,6 +905,9 @@ try:
                                          'samples': adapter_xrefs['alignedPointerValues']['samples'][:12]},
                 'execTruncated': adapter_xrefs['execTruncated'], 'dataTruncated': adapter_xrefs['dataTruncated'],
                 'tailTracesReported': len(tail['traces']),
+                'directCallsFromFlow': direct_targets.get('counts', {}).get('0x18904e0'),
+                'directCallerSites': [detail.get('site') for detail in direct_targets.get('examples', [])
+                                      if detail.get('target') == '0x18904e0'][:8],
             }
             print('::warning title=WorldBox wide-string file adapter xrefs::' +
                   json.dumps(adapter_summary, separators=(',', ':')).replace('%', '%25'))

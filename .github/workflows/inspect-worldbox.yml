@@ -244,7 +244,15 @@ jobs:
           WORLDBOX_GHIDRA_ARMV7_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '1' || '0' }}
           WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper')) && '0' || '1' }}
           PYTHONUNBUFFERED: '1'
-        run: python .github/scripts/inspect_worldbox.py
+        run: |
+          set -o pipefail
+          python .github/scripts/inspect_worldbox.py | tee "$RUNNER_TEMP/worldbox-ghidra-output.txt"
+      - name: Surface file-helper open sequence
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-open-sequence]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
+          test -s "$output"
+          grep -F '::warning title=WorldBox file-helper open sequence' "$output"
   upstream-arm64-probe:
     if: ${{ contains(github.event.head_commit.message, '[worldbox-upstream]') }}
     runs-on: ubuntu-latest
@@ -486,7 +494,16 @@ jobs:
         env:
           WORLDBOX_NATIVE_PROBE: '1'
           PYTHONUNBUFFERED: '1'
-        run: python .github/scripts/inspect_worldbox.py
+        run: |
+          set -o pipefail
+          python .github/scripts/inspect_worldbox.py | tee "$RUNNER_TEMP/worldbox-native-output.txt"
+      - name: Surface wide-string file adapter references
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-adapter-xrefs]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-native-output.txt"
+          test -s "$output"
+          grep -F '::warning title=WorldBox wide-string file adapter' "$output"
+          grep -F '::warning title=WorldBox ARM64 internal-target caller' "$output" | grep -F '"target":"0x18904e0"' || true
   runtime-probe:
     if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') || contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]') }}
     runs-on: ubuntu-latest
