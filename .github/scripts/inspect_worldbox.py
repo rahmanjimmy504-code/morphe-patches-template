@@ -356,6 +356,53 @@ try:
                     for number, part in enumerate(parts, 1):
                         print(f'::warning title=WorldBox file-helper open sequence {number}/{len(parts)}::' +
                               '|'.join(part))
+            adapter_command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                               '--headless', tool, '--binary', str(native),
+                               '--address', '0x3adeb90', '--address', '0x3ae26c4',
+                               '--trace-target', '0x18904e0']
+            adapter_result = subprocess.run(adapter_command, capture_output=True, text=True, timeout=1000)
+            if adapter_result.returncode:
+                diagnostic = (adapter_result.stderr or adapter_result.stdout)[-300:]
+                print('::notice title=WorldBox adapter tail caller Ghidra::' + json.dumps(
+                    {'status': 'failed', 'diagnostic': diagnostic}, separators=(',', ':'))
+                    .replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+            else:
+                adapter_report = json.loads(adapter_result.stdout)
+                if adapter_report.get('kind') != 'ghidra-callees-probe':
+                    raise RuntimeError('Unexpected adapter tail caller Ghidra report.')
+                for row in adapter_report.get('functions', []):
+                    compact = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                               'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
+                               'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                               'operationCounts': row.get('operationCounts', {}),
+                               'calls': [{'site': call.get('site'), 'target': call.get('target'),
+                                          'verifiedDirect': call.get('verifiedDirect'),
+                                          'importCategory': call.get('importCategory')}
+                                         for call in row.get('calls', [])[:10]],
+                               'tracedTargetArguments': [{key: item.get(key) for key in
+                                  ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds',
+                                   'inputRegisters', 'nodes', 'limited')}
+                                  for item in row.get('tracedTargetArguments', [])[:12]],
+                               'returnGraphs': [{'roots': graph.get('rootKinds', []),
+                                                 'strings': graph.get('stringCategories', []),
+                                                 'operations': sorted(graph.get('operationCounts', {})),
+                                                 'nodes': graph.get('nodes'),
+                                                 'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))}
+                                                for graph in row.get('returnGraphs', [])],
+                               'stringCategories': row.get('stringCategories', []),
+                               'truncated': row.get('truncated')}
+                    print('::warning title=WorldBox adapter tail caller Ghidra::' +
+                          json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
+            for fde_start in (0x3adeaf8, 0x3ae26c4):
+                try:
+                    fde_report = disassemble_fde(native, fde_start)
+                except ValueError as exc:
+                    print('::notice title=WorldBox adapter tail caller instructions::' + json.dumps(
+                        {'entry': hex(fde_start), 'status': 'unavailable', 'reason': str(exc)},
+                        separators=(',', ':')).replace('%', '%25'))
+                else:
+                    print('::warning title=WorldBox adapter tail caller instructions::' +
+                          json.dumps(fde_report, separators=(',', ':')).replace('%', '%25'))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or

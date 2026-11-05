@@ -247,12 +247,16 @@ jobs:
         run: |
           set -o pipefail
           python .github/scripts/inspect_worldbox.py | tee "$RUNNER_TEMP/worldbox-ghidra-output.txt"
-      - name: Surface file-helper open sequence
-        if: ${{ contains(github.event.head_commit.message, '[worldbox-open-sequence]') }}
+      - name: Surface bounded follow-up annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-open-sequence]') || contains(github.event.head_commit.message, '[worldbox-adapter-callers]') }}
         run: |
           output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
           test -s "$output"
-          grep -F '::warning title=WorldBox file-helper open sequence' "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox adapter tail caller' "$output"; then
+            echo 'No adapter tail caller annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox (file-helper open sequence|adapter tail caller)' "$output" || true
   upstream-arm64-probe:
     if: ${{ contains(github.event.head_commit.message, '[worldbox-upstream]') }}
     runs-on: ubuntu-latest
