@@ -91,6 +91,68 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_METADATA_JAVA_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            if not unity or not unity.is_file():
+                raise RuntimeError('ARM64 libunity.so not found in the bundle.')
+            if not base_apk or not base_apk.is_file():
+                raise RuntimeError('base.apk not found in the bundle.')
+            with native.open('rb') as f:
+                native_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if native_hash != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 libil2cpp.so hash does not match the observed 0.51.4 sample; refusing analysis.')
+            with unity.open('rb') as f:
+                unity_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if unity_hash != '8c04ad3b7d482cab925541cfe9839844c87732f7419aaaa71e170ccff916f082':
+                raise RuntimeError('ARM64 libunity.so hash does not match the observed 0.51.4 sample; refusing analysis.')
+            with base_apk.open('rb') as f:
+                base_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            from worldbox_metadata_java_probe import analyze_apks
+            report = analyze_apks(apk_paths)
+            if report.get('kind') != 'worldbox-metadata-java-probe':
+                raise RuntimeError('Unexpected WorldBox metadata Java report.')
+            print('WorldBox full metadata Java report: ' + json.dumps(report, separators=(',', ':')))
+            summary = {
+                'needles': report['needles'], 'encodings': report['encodings'],
+                'baseApkSha256': base_hash,
+                'dexFiles': [{'apk': row['apk'], 'dex': row['dex'], 'bytes': row['bytes'],
+                              'sha256': row['sha256'],
+                              'parseStatus': row['parsed']['status'],
+                              'stringCount': row['parsed'].get('stringCount'),
+                              'rawCounts': {label: {encoding: value['count']
+                                                    for encoding, value in encodings.items()}
+                                            for label, encodings in row['raw']['results'].items()}}
+                             for row in report['dexFiles']],
+                'limitations': report['limitations']}
+            print('::warning title=WorldBox metadata Java summary::' +
+                  json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
+            for index, row in enumerate(report['dexFiles'], 1):
+                label = row['apk'] + ' ' + str(index)
+                raw_examples = []
+                for needle, encodings in row['raw']['results'].items():
+                    for encoding, value in encodings.items():
+                        for example in value['examples']:
+                            raw_examples.append({'needle': needle, 'encoding': encoding, **example})
+                if raw_examples:
+                    parts = [raw_examples[start:start + 12] for start in range(0, len(raw_examples), 12)]
+                    raw_truncated = any(value['examplesTruncated']
+                                        for encodings in row['raw']['results'].values()
+                                        for value in encodings.values())
+                    for number, part in enumerate(parts, 1):
+                        payload = {'apk': row['apk'], 'dex': row['dex'],
+                                   'chunk': [number, len(parts)], 'examples': part,
+                                   'truncated': raw_truncated}
+                        print('::warning title=WorldBox metadata Java raw hits ' + label +
+                              ' ' + str(number) + '/' + str(len(parts)) + '::' +
+                              json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+                else:
+                    print('::notice title=WorldBox metadata Java raw hits ' + label + '::' +
+                          json.dumps({'status': 'no-examples'}, separators=(',', ':')))
+                parsed = {'apk': row['apk'], 'dex': row['dex'], **row['parsed']}
+                print('::warning title=WorldBox metadata Java DEX strings ' + label + '::' +
+                      json.dumps(parsed, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_DEX_CALLBACK_PROBE') == '1':
             command = [sys.executable, '.github/scripts/worldbox_dex_callbacks.py', *map(str, apk_paths)]
             result = subprocess.run(command, capture_output=True, text=True, timeout=300)
@@ -1054,6 +1116,30 @@ try:
             for row in report['sectionContexts']:
                 print('::warning title=WorldBox metadata path section context ' + row['address'] + '::' +
                       json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+            characterization = report['sectionCharacterization']
+            inventory = {'sectionName': characterization['sectionName'],
+                         'sectionCount': characterization['sectionCount'],
+                         'sections': characterization['sections'],
+                         'limitations': characterization['limitations']}
+            print('::warning title=WorldBox metadata path section inventory::' +
+                  json.dumps(inventory, separators=(',', ':')).replace('%', '%25'))
+            reference_keys = ('adrpAddReferences', 'directCalls', 'tailBranches',
+                              'dataPointers', 'relocationAddends')
+            reference_summary = {key: {'count': characterization[key]['count'],
+                                       'samplesTruncated': characterization[key]['samplesTruncated']}
+                                 for key in reference_keys}
+            reference_summary.update({key: characterization[key]
+                                      for key in ('unwindStatus', 'unwindRanges', 'executableBytes',
+                                                  'executableScanned', 'execTruncated',
+                                                  'allocatedDataBytes', 'allocatedDataScanned',
+                                                  'dataTruncated', 'unsupportedRelocationSections')})
+            print('::warning title=WorldBox metadata path section reference summary::' +
+                  json.dumps(reference_summary, separators=(',', ':')).replace('%', '%25'))
+            for key in reference_keys:
+                payload = {'category': key, **{field: characterization[key][field]
+                                              for field in ('count', 'samples', 'samplesTruncated')}}
+                print('::warning title=WorldBox metadata path section references ' + key + '::' +
+                      json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
         if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
             if not native or not native.is_file():

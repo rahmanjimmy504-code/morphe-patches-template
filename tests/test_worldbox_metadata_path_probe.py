@@ -62,6 +62,18 @@ class MetadataPathProbeTest(unittest.TestCase):
         self.assertEqual(row['contextWindow']['bytesRead'], 6)
         self.assertIsNone(row['contextWindow']['stringCategory'])
 
+    def test_section_characterization_reports_inventory_and_bounded_references(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True))
+            report = probe.section_characterization(path, '.dynstr')
+        self.assertEqual(report['sectionCount'], 1)
+        self.assertEqual(report['sections'][0]['name'], '.dynstr')
+        self.assertIn('sha256', report['sections'][0]['dataSummary'])
+        self.assertEqual(report['adrpAddReferences']['count'], 0)
+        self.assertEqual(report['dataPointers']['count'], 0)
+        self.assertEqual(report['relocationAddends']['count'], 0)
+
     def test_build_report_combines_three_bundle_members(self):
         with tempfile.TemporaryDirectory() as directory:
             native = Path(directory) / 'libil2cpp.so'
@@ -76,6 +88,7 @@ class MetadataPathProbeTest(unittest.TestCase):
         self.assertEqual([item['role'] for item in report['files']],
                          ['libil2cpp', 'libunity', 'base.apk'])
         self.assertEqual(len(report['sectionContexts']), len(probe.CONTEXT_ADDRESSES))
+        self.assertEqual(report['sectionCharacterization']['sectionName'], 'il2cpp')
 
 
 if __name__ == '__main__':
