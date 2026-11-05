@@ -162,7 +162,8 @@ def reference_report(path, thunks=THUNKS, static_addresses=STATIC_ADDRESSES):
                         entry['alignedPointerValues'] += 1
                         if len(entry['pointerSamples']) < MAX_SAMPLES:
                             entry['pointerSamples'].append({
-                                'section': sec.name, 'location': hex(location)})
+                                'section': sec.name, 'location': hex(location),
+                                'sectionKind': 'relocation' if isinstance(sec, RelocationSection) else 'data'})
         for sec in elf.iter_sections():
             if not isinstance(sec, RelocationSection):
                 continue
@@ -181,6 +182,7 @@ def reference_report(path, thunks=THUNKS, static_addresses=STATIC_ADDRESSES):
                         value = symbols.get_symbol(index)['st_value'] + addend
                 if value is None:
                     continue
+                described = describe_pointer(value, sections)
                 for target in thunks:
                     if value != target:
                         continue
@@ -188,13 +190,17 @@ def reference_report(path, thunks=THUNKS, static_addresses=STATIC_ADDRESSES):
                     entry['matchingRelocations'] += 1
                     if len(entry['relocationSamples']) < MAX_SAMPLES:
                         entry['relocationSamples'].append({
-                            'section': sec.name, 'slot': hex(rel['r_offset']), 'type': kind})
+                            'section': sec.name, 'slot': hex(rel['r_offset']), 'type': kind,
+                            'valueSection': described['section'] if described else None,
+                            'valueOffset': described['offset'] if described else None})
                 key = hex(rel['r_offset'])
                 if key in static_relocation_counts:
                     static_relocation_counts[key] += 1
                     if len(static_relocation_samples[key]) < MAX_SAMPLES:
                         static_relocation_samples[key].append({
                             'section': sec.name, 'slot': key, 'type': kind,
+                            'valueSection': described['section'] if described else None,
+                            'valueOffset': described['offset'] if described else None,
                             'valueIsThunkTarget': value in thunks})
         static_rows = [static_data_summary(f, sections, address) for address in static_addresses]
         for row in static_rows:

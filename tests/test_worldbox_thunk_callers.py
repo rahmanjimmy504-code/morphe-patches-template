@@ -51,7 +51,9 @@ class ThunkReferenceTest(unittest.TestCase):
         entry = report['thunks']['0x3000']
         self.assertEqual(entry['matchingRelocations'], 1)
         self.assertEqual(entry['relocationSamples'][0]['slot'], '0x6000')
+        self.assertEqual(entry['relocationSamples'][0]['valueSection'], '.text')
         self.assertEqual(report['staticData'][0]['relocationSlots'], 1)
+        self.assertEqual(report['staticData'][0]['relocationSamples'][0]['valueSection'], '.text')
 
     def test_pointer_description_names_the_containing_section(self):
         with tempfile.TemporaryDirectory() as directory:
