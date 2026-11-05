@@ -1114,7 +1114,7 @@ try:
                           ' ' + str(number) + '/' + str(len(parts)) + '::' +
                           json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
             for row in report['sectionContexts']:
-                print('::warning title=WorldBox metadata path section context ' + row['address'] + '::' +
+                print('::notice title=WorldBox metadata path section context ' + row['address'] + '::' +
                       json.dumps(row, separators=(',', ':')).replace('%', '%25'))
             characterization = report['sectionCharacterization']
             inventory = {'sectionName': characterization['sectionName'],
@@ -1123,8 +1123,8 @@ try:
                          'limitations': characterization['limitations']}
             print('::warning title=WorldBox metadata path section inventory::' +
                   json.dumps(inventory, separators=(',', ':')).replace('%', '%25'))
-            reference_keys = ('adrpAddReferences', 'directCalls', 'tailBranches',
-                              'dataPointers', 'relocationAddends')
+            reference_keys = ('dataPointers', 'relocationAddends', 'adrpAddReferences',
+                              'directCalls', 'tailBranches')
             reference_summary = {key: {'count': characterization[key]['count'],
                                        'samplesTruncated': characterization[key]['samplesTruncated']}
                                  for key in reference_keys}
