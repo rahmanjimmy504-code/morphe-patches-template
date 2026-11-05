@@ -333,6 +333,12 @@ try:
                     adjacent_instructions = disassemble_fde(native, 0x1930028, max_size=512)
                     print('::warning title=WorldBox adjacent conversion helper instructions::' +
                           json.dumps(adjacent_instructions, separators=(',', ':')).replace('%', '%25'))
+                    caller_instructions = disassemble_fde(native, 0x18904e0)
+                    print('::warning title=WorldBox conversion and file-helper caller instructions::' +
+                          json.dumps(caller_instructions, separators=(',', ':')).replace('%', '%25'))
+                    file_helper_instructions = disassemble_fde(native, 0x18eb1a0, max_size=1024)
+                    print('::warning title=WorldBox file-helper instructions::' +
+                          json.dumps(file_helper_instructions, separators=(',', ':')).replace('%', '%25'))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
