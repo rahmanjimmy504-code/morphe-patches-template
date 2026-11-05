@@ -339,6 +339,16 @@ try:
                     file_helper_instructions = disassemble_fde(native, 0x18eb1a0, max_size=1024)
                     print('::warning title=WorldBox file-helper instructions::' +
                           json.dumps(file_helper_instructions, separators=(',', ':')).replace('%', '%25'))
+                    open_sequence = [item for item in file_helper_instructions['instructions']
+                                     if 0x18eb28c <= int(item['address'], 16) <= 0x18eb3d0]
+                    chunks = (len(open_sequence) + 19) // 20
+                    for index in range(0, len(open_sequence), 20):
+                        bounded = {'entry': file_helper_instructions['entry'],
+                                   'range': ['0x18eb28c', '0x18eb3d0'],
+                                   'chunk': [index // 20 + 1, chunks],
+                                   'instructions': open_sequence[index:index + 20]}
+                        print('::warning title=WorldBox file-helper open sequence::' +
+                              json.dumps(bounded, separators=(',', ':')).replace('%', '%25'))
             print('::warning title=WorldBox focused helper Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
         if (os.environ.get('WORLDBOX_GHIDRA_PROBE') == '1' or
@@ -866,12 +876,36 @@ try:
                 raise RuntimeError('Unexpected ARM64 cross-reference result.')
             # GitHub truncates each annotation at 4096 characters. Keep the full
             # aggregate-only report in the job log and emit bounded annotations.
-            from worldbox_native_xrefs import annotation_payloads
+            from worldbox_native_xrefs import annotation_payloads, inspect as inspect_xrefs
             print('ARM64 full aggregate xrefs: ' + json.dumps(xref, separators=(',', ':')))
             summary, details = annotation_payloads(xref)
             print('::warning title=WorldBox ARM64 indirect references::' + json.dumps(summary, separators=(',', ':')))
             for detail in details:
                 print('::warning title=WorldBox ARM64 source input::' + json.dumps(detail, separators=(',', ':')))
+            adapter_xrefs = inspect_xrefs(native, target=0x18904e0)
+            if adapter_xrefs.get('kind') != 'arm64-static-xrefs':
+                raise RuntimeError('Unexpected wide-string file adapter xref result.')
+            tail = adapter_xrefs['directTailBranches']
+            adapter_summary = {
+                'target': adapter_xrefs['target'], 'symbolMatches': adapter_xrefs['symbolMatches'],
+                'directTailBranches': {'count': tail['count'], 'sampleSites': tail['sampleSites'][:12]},
+                'pcRelativeAddressPairs': {'count': adapter_xrefs['pcRelativeAddressPairs']['count'],
+                                           'samples': adapter_xrefs['pcRelativeAddressPairs']['samples'][:12]},
+                'matchingRelocations': {'count': adapter_xrefs['matchingRelocations']['count'],
+                                        'samples': adapter_xrefs['matchingRelocations']['samples'][:12],
+                                        'unsupportedSections': adapter_xrefs['matchingRelocations']['unsupportedRelocationSections'][:8]},
+                'alignedPointerValues': {'count': adapter_xrefs['alignedPointerValues']['count'],
+                                         'samples': adapter_xrefs['alignedPointerValues']['samples'][:12]},
+                'execTruncated': adapter_xrefs['execTruncated'], 'dataTruncated': adapter_xrefs['dataTruncated'],
+                'tailTracesReported': len(tail['traces']),
+            }
+            print('::warning title=WorldBox wide-string file adapter xrefs::' +
+                  json.dumps(adapter_summary, separators=(',', ':')).replace('%', '%25'))
+            for trace in tail['traces'][:4]:
+                compact_trace = {key: trace.get(key) for key in ('site', 'function', 'size', 'workLimitReached', 'status')}
+                compact_trace['call'] = trace.get('call')
+                print('::warning title=WorldBox wide-string file adapter tail caller::' +
+                      json.dumps(compact_trace, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
         if os.environ.get('WORLDBOX_REA_PROBE') == '1':
             rea = os.environ['WORLDBOX_REA_ENTRY']
