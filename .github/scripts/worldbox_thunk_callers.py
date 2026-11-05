@@ -13,6 +13,8 @@ import struct
 
 from elftools.dwarf.callframe import FDE
 from elftools.elf.elffile import ELFFile
+from elftools.elf.relocation import RelocationSection
+from elftools.elf.sections import SymbolTableSection
 
 import worldbox_native_flow as flow
 import worldbox_native_scan as triage
@@ -107,8 +109,13 @@ def reference_report(path, thunks=THUNKS, static_addresses=STATIC_ADDRESSES):
         frames, unwind_status = unwind_frames(elf)
         starts = [lo for lo, _ in frames]
         refs = {hex(target): {'directCalls': 0, 'tailBranches': 0,
-                              'alignedPointerValues': 0, 'sampleSites': []}
+                              'alignedPointerValues': 0, 'pointerSamples': [],
+                              'matchingRelocations': 0, 'relocationSamples': [],
+                              'sampleSites': []}
                 for target in thunks}
+        static_relocation_counts = {hex(address): 0 for address in static_addresses}
+        static_relocation_samples = {hex(address): [] for address in static_addresses}
+        unsupported_relocations = []
         exec_scanned = exec_total = 0
         data_scanned = data_total = 0
         for sec in executable_sections(elf):
@@ -147,11 +154,52 @@ def reference_report(path, thunks=THUNKS, static_addresses=STATIC_ADDRESSES):
             data_scanned += len(data)
             first = (-sec['sh_addr']) % 8
             aligned = data[first:first + ((len(data) - first) // 8) * 8] if len(data) >= first else b''
-            for value, in struct.iter_unpack('<Q', aligned):
+            for index, (value,) in enumerate(struct.iter_unpack('<Q', aligned)):
+                location = sec['sh_addr'] + first + index * 8
                 for target in thunks:
                     if value == target:
-                        refs[hex(target)]['alignedPointerValues'] += 1
+                        entry = refs[hex(target)]
+                        entry['alignedPointerValues'] += 1
+                        if len(entry['pointerSamples']) < MAX_SAMPLES:
+                            entry['pointerSamples'].append({
+                                'section': sec.name, 'location': hex(location)})
+        for sec in elf.iter_sections():
+            if not isinstance(sec, RelocationSection):
+                continue
+            if not sec.is_RELA():
+                unsupported_relocations.append(sec.name)
+                continue
+            symbols = elf.get_section(sec['sh_link'])
+            for rel in sec.iter_relocations():
+                kind, addend = rel['r_info_type'], rel['r_addend']
+                value = None
+                if kind == 1027:  # R_AARCH64_RELATIVE
+                    value = addend
+                elif kind in (257, 1025) and isinstance(symbols, SymbolTableSection):
+                    index = rel['r_info_sym']
+                    if index < symbols.num_symbols():
+                        value = symbols.get_symbol(index)['st_value'] + addend
+                if value is None:
+                    continue
+                for target in thunks:
+                    if value != target:
+                        continue
+                    entry = refs[hex(target)]
+                    entry['matchingRelocations'] += 1
+                    if len(entry['relocationSamples']) < MAX_SAMPLES:
+                        entry['relocationSamples'].append({
+                            'section': sec.name, 'slot': hex(rel['r_offset']), 'type': kind})
+                key = hex(rel['r_offset'])
+                if key in static_relocation_counts:
+                    static_relocation_counts[key] += 1
+                    if len(static_relocation_samples[key]) < MAX_SAMPLES:
+                        static_relocation_samples[key].append({
+                            'section': sec.name, 'slot': key, 'type': kind,
+                            'valueIsThunkTarget': value in thunks})
         static_rows = [static_data_summary(f, sections, address) for address in static_addresses]
+        for row in static_rows:
+            row['relocationSlots'] = static_relocation_counts[row['address']]
+            row['relocationSamples'] = static_relocation_samples[row['address']]
     return {'kind': 'worldbox-thunk-references',
             'unwindStatus': unwind_status, 'unwindRanges': len(frames),
             'thunks': refs, 'staticData': static_rows,
@@ -159,6 +207,7 @@ def reference_report(path, thunks=THUNKS, static_addresses=STATIC_ADDRESSES):
             'execTruncated': exec_scanned < exec_total,
             'allocatedDataBytes': data_total, 'allocatedDataScanned': data_scanned,
             'dataTruncated': data_scanned < data_total,
+            'unsupportedRelocationSections': sorted(set(unsupported_relocations)),
             'limitations': 'Linear instruction decoding and aligned-word matching identify static candidates, not executed control flow. Indirect references, packed relocations, runtime-generated pointers and writable globals are not fully modeled.'}
 
 

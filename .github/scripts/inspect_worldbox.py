@@ -251,13 +251,17 @@ try:
             print('WorldBox full thunk reference report: ' + json.dumps(report, separators=(',', ':')))
             summary = {key: report[key] for key in
                        ('unwindStatus', 'unwindRanges', 'executableBytes', 'executableScanned', 'execTruncated',
-                        'allocatedDataBytes', 'allocatedDataScanned', 'dataTruncated')}
+                        'allocatedDataBytes', 'allocatedDataScanned', 'dataTruncated',
+                        'unsupportedRelocationSections')}
             print('::warning title=WorldBox thunk reference summary::' +
                   json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
             for target_hex, info in report['thunks'].items():
                 compact = {'target': target_hex, 'directCalls': info['directCalls'],
                            'tailBranches': info['tailBranches'],
                            'alignedPointerValues': info['alignedPointerValues'],
+                           'pointerSamples': info['pointerSamples'],
+                           'matchingRelocations': info['matchingRelocations'],
+                           'relocationSamples': info['relocationSamples'],
                            'sampleSites': info['sampleSites']}
                 print('::warning title=WorldBox thunk reference sites ' + target_hex + '::' +
                       json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
@@ -312,14 +316,34 @@ try:
                                   json.dumps(compact_thunk_row(row), separators=(',', ':')).replace('%', '%25'))
                 for fde_start in sorted({int(item['function'], 16) for item in sites}):
                     try:
-                        fde_report = disassemble_fde(native, fde_start, max_size=1024)
+                        fde_report = disassemble_fde(native, fde_start, max_size=2048)
                     except ValueError as exc:
                         print('::notice title=WorldBox thunk caller instructions ' + hex(fde_start) + '::' +
                               json.dumps({'status': 'unavailable', 'reason': str(exc)},
                                          separators=(',', ':')).replace('%', '%25'))
                     else:
-                        print('::warning title=WorldBox thunk caller instructions ' + hex(fde_start) + '::' +
-                              json.dumps(fde_report, separators=(',', ':')).replace('%', '%25'))
+                        print('WorldBox thunk caller full instruction report: ' +
+                              json.dumps(fde_report, separators=(',', ':')))
+                        lines = [f"{item['address']} {item['mnemonic']} {item['operands']}".strip().replace('%', '%25')
+                                 for item in fde_report['instructions']]
+                        parts, current = [], []
+                        for line in lines:
+                            candidate = current + [line]
+                            if current and len('|'.join(candidate)) > 3400:
+                                parts.append(current)
+                                current = [line]
+                            else:
+                                current = candidate
+                        if current:
+                            parts.append(current)
+                        for number, part in enumerate(parts, 1):
+                            bounded = {'entry': fde_report['entry'], 'size': fde_report['size'],
+                                       'decodedInstructions': fde_report['decodedInstructions'],
+                                       'fullyDecoded': fde_report['fullyDecoded'],
+                                       'chunk': [number, len(parts)], 'instructions': '|'.join(part)}
+                            print('::warning title=WorldBox thunk caller instructions compact ' +
+                                  hex(fde_start) + ' ' + str(number) + '/' + str(len(parts)) + '::' +
+                                  json.dumps(bounded, separators=(',', ':')).replace('%', '%25'))
             print('::notice title=WorldBox thunk limitations::' +
                   report.get('limitations', '').replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
             sys.exit(0)

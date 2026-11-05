@@ -42,6 +42,17 @@ class ThunkReferenceTest(unittest.TestCase):
         self.assertIsNone(row['stringCategory'])
         self.assertFalse(row['executable'])
 
+    def test_relative_relocation_slots_are_recorded(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True))
+            report = thunks.reference_report(path, thunks=(0x3000,),
+                                            static_addresses=(0x6000,))
+        entry = report['thunks']['0x3000']
+        self.assertEqual(entry['matchingRelocations'], 1)
+        self.assertEqual(entry['relocationSamples'][0]['slot'], '0x6000')
+        self.assertEqual(report['staticData'][0]['relocationSlots'], 1)
+
     def test_pointer_description_names_the_containing_section(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'fixture.so'
