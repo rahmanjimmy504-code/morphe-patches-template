@@ -235,6 +235,94 @@ try:
                     print('::warning title=WorldBox libunity indirect-call dataflow::' + message.replace('%', '%25'))
             print('::warning title=WorldBox libunity Ghidra limitations::' + report.get('limitations', ''))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_THUNK_CALLERS_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_thunk_callers import reference_report
+            from worldbox_native_flow import disassemble_fde
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            report = reference_report(native)
+            if report.get('kind') != 'worldbox-thunk-references':
+                raise RuntimeError('Unexpected WorldBox thunk reference report.')
+            print('WorldBox full thunk reference report: ' + json.dumps(report, separators=(',', ':')))
+            summary = {key: report[key] for key in
+                       ('unwindStatus', 'unwindRanges', 'executableBytes', 'executableScanned', 'execTruncated',
+                        'allocatedDataBytes', 'allocatedDataScanned', 'dataTruncated')}
+            print('::warning title=WorldBox thunk reference summary::' +
+                  json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
+            for target_hex, info in report['thunks'].items():
+                compact = {'target': target_hex, 'directCalls': info['directCalls'],
+                           'tailBranches': info['tailBranches'],
+                           'alignedPointerValues': info['alignedPointerValues'],
+                           'sampleSites': info['sampleSites']}
+                print('::warning title=WorldBox thunk reference sites ' + target_hex + '::' +
+                      json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
+            for row in report['staticData']:
+                print('::warning title=WorldBox thunk static data ' + row['address'] + '::' +
+                      json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+            def compact_thunk_row(row):
+                return {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                        'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
+                        'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                        'operationCounts': row.get('operationCounts', {}),
+                        'calls': [{'site': call.get('site'), 'target': call.get('target'),
+                                   'verifiedDirect': call.get('verifiedDirect'),
+                                   'importCategory': call.get('importCategory')}
+                                  for call in row.get('calls', [])[:10]],
+                        'tracedTargetArguments': [{key: item.get(key) for key in
+                           ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds',
+                            'inputRegisters', 'nodes', 'limited')}
+                           for item in row.get('tracedTargetArguments', [])[:12]],
+                        'returnGraphs': [{'roots': graph.get('rootKinds', []),
+                                          'strings': graph.get('stringCategories', []),
+                                          'operations': sorted(graph.get('operationCounts', {})),
+                                          'nodes': graph.get('nodes'),
+                                          'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))}
+                                         for graph in row.get('returnGraphs', [])],
+                        'stringCategories': row.get('stringCategories', []),
+                        'truncated': row.get('truncated')}
+            for target_hex, info in report['thunks'].items():
+                sites = [item for item in info['sampleSites']
+                         if item['function'] and item['size'] is not None and item['size'] <= 4096][:4]
+                if not sites:
+                    print('::notice title=WorldBox thunk caller Ghidra ' + target_hex + '::' +
+                          json.dumps({'status': 'no-bounded-caller-samples'}, separators=(',', ':')))
+                else:
+                    command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                               '--headless', tool, '--binary', str(native)]
+                    for item in sites:
+                        command += ['--address', item['site']]
+                    command += ['--trace-target', target_hex]
+                    result = subprocess.run(command, capture_output=True, text=True, timeout=1000)
+                    if result.returncode:
+                        diagnostic = (result.stderr or result.stdout)[-300:]
+                        print('::notice title=WorldBox thunk caller Ghidra ' + target_hex + '::' +
+                              json.dumps({'status': 'failed', 'diagnostic': diagnostic}, separators=(',', ':'))
+                              .replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+                    else:
+                        ghidra_report = json.loads(result.stdout)
+                        if ghidra_report.get('kind') != 'ghidra-callees-probe':
+                            raise RuntimeError('Unexpected thunk caller Ghidra report.')
+                        for row in ghidra_report.get('functions', []):
+                            print('::warning title=WorldBox thunk caller Ghidra ' + target_hex + '::' +
+                                  json.dumps(compact_thunk_row(row), separators=(',', ':')).replace('%', '%25'))
+                for fde_start in sorted({int(item['function'], 16) for item in sites}):
+                    try:
+                        fde_report = disassemble_fde(native, fde_start, max_size=1024)
+                    except ValueError as exc:
+                        print('::notice title=WorldBox thunk caller instructions ' + hex(fde_start) + '::' +
+                              json.dumps({'status': 'unavailable', 'reason': str(exc)},
+                                         separators=(',', ':')).replace('%', '%25'))
+                    else:
+                        print('::warning title=WorldBox thunk caller instructions ' + hex(fde_start) + '::' +
+                              json.dumps(fde_report, separators=(',', ':')).replace('%', '%25'))
+            print('::notice title=WorldBox thunk limitations::' +
+                  report.get('limitations', '').replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_HELPER_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
