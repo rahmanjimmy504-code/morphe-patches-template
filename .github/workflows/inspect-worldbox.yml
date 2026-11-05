@@ -10,6 +10,7 @@ on:
       - .github/scripts/worldbox_native_flow.py
       - .github/scripts/worldbox_native_xrefs.py
       - .github/scripts/worldbox_thunk_callers.py
+      - .github/scripts/worldbox_metadata_path_probe.py
       - .github/scripts/worldbox_ghidra_probe.py
       - .github/scripts/worldbox_ghidra_callees.py
       - .github/scripts/worldbox_metadata_magic_probe.py
@@ -57,6 +58,7 @@ on:
       - tests/test_worldbox_native_flow.py
       - tests/test_worldbox_native_xrefs.py
       - tests/test_worldbox_thunk_callers.py
+      - tests/test_worldbox_metadata_path_probe.py
       - docs/worldbox/scan-metadata.js
       - tests/worldbox-metadata-scanner.test.cjs
       - tests/test_worldbox_triage.py
@@ -483,7 +485,7 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   native-arm64-probe:
-    if: ${{ contains(github.event.head_commit.message, '[worldbox-native]') }}
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-native]') || contains(github.event.head_commit.message, '[worldbox-metadata-path]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -498,9 +500,12 @@ jobs:
           python tests/test_worldbox_native.py
           python tests/test_worldbox_native_flow.py
           python tests/test_worldbox_native_xrefs.py
+          python tests/test_worldbox_thunk_callers.py
+          python tests/test_worldbox_metadata_path_probe.py
       - name: Inspect original ARM64 library without executing it
         env:
-          WORLDBOX_NATIVE_PROBE: '1'
+          WORLDBOX_NATIVE_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-path]') && '0' || '1' }}
+          WORLDBOX_METADATA_PATH_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-path]') && '1' || '0' }}
           PYTHONUNBUFFERED: '1'
         run: |
           set -o pipefail
@@ -512,6 +517,16 @@ jobs:
           test -s "$output"
           grep -F '::warning title=WorldBox wide-string file adapter' "$output"
           grep -F '::warning title=WorldBox ARM64 internal-target caller' "$output" | grep -F '"target":"0x18904e0"' || true
+      - name: Surface metadata path probe annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-path]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-native-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox metadata path' "$output"; then
+            echo 'No metadata path probe annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox metadata path' "$output" || true
   runtime-probe:
     if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') || contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]') }}
     runs-on: ubuntu-latest

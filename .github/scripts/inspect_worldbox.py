@@ -1000,6 +1000,61 @@ try:
                         if row['startRefs'] or row['keywordRefs']:
                             print('::warning title=WorldBox string-lead reference::' + json.dumps({'library': label, 'category': category, **row}, separators=(',', ':')))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_METADATA_PATH_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            if not unity or not unity.is_file():
+                raise RuntimeError('ARM64 libunity.so not found in the bundle.')
+            if not base_apk or not base_apk.is_file():
+                raise RuntimeError('base.apk not found in the bundle.')
+            with native.open('rb') as f:
+                native_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if native_hash != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 libil2cpp.so hash does not match the observed 0.51.4 sample; refusing analysis.')
+            with unity.open('rb') as f:
+                unity_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if unity_hash != '8c04ad3b7d482cab925541cfe9839844c87732f7419aaaa71e170ccff916f082':
+                raise RuntimeError('ARM64 libunity.so hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_metadata_path_probe import build_report
+            report = build_report(native, unity, base_apk)
+            if report.get('kind') != 'worldbox-metadata-path-probe':
+                raise RuntimeError('Unexpected WorldBox metadata path report.')
+            print('WorldBox full metadata path report: ' + json.dumps(report, separators=(',', ':')))
+            summary = {
+                'needles': report['needles'], 'encodings': report['encodings'],
+                'files': [{'role': item['role'], 'sha256': item['sha256'], 'bytes': item['bytes'],
+                           'counts': {label: {encoding: value['count']
+                                              for encoding, value in encodings.items()}
+                                      for label, encodings in item['scan']['results'].items()}}
+                          for item in report['files']],
+                'sectionContextAddresses': [row['address'] for row in report['sectionContexts']],
+                'limitations': report['limitations']}
+            print('::warning title=WorldBox metadata path summary::' +
+                  json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
+            for item in report['files']:
+                examples = []
+                for label, encodings in item['scan']['results'].items():
+                    for encoding, value in encodings.items():
+                        for example in value['examples']:
+                            examples.append({'needle': label, 'encoding': encoding, **example})
+                if not examples:
+                    print('::notice title=WorldBox metadata path hits ' + item['role'] + '::' +
+                          json.dumps({'status': 'no-examples'}, separators=(',', ':')))
+                    continue
+                parts = [examples[index:index + 12] for index in range(0, len(examples), 12)]
+                examples_truncated = any(value['examplesTruncated']
+                                         for encodings in item['scan']['results'].values()
+                                         for value in encodings.values())
+                for number, part in enumerate(parts, 1):
+                    payload = {'role': item['role'], 'chunk': [number, len(parts)],
+                               'examples': part, 'truncated': examples_truncated}
+                    print('::warning title=WorldBox metadata path hits ' + item['role'] +
+                          ' ' + str(number) + '/' + str(len(parts)) + '::' +
+                          json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            for row in report['sectionContexts']:
+                print('::warning title=WorldBox metadata path section context ' + row['address'] + '::' +
+                      json.dumps(row, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
