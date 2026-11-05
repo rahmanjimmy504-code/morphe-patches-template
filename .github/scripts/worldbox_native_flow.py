@@ -27,7 +27,8 @@ SITES = {
     0x18eb254: 'open', 0x18eb26c: 'fstat', 0x18eb32c: 'open',
 }
 # Ghidra-confirmed internal targets. Each caller scan reports at most eight examples.
-INTERNAL_TARGETS = {0x18d3dd0: 'tail-mapparent', 0x18eb1a0: 'file-helper'}
+INTERNAL_TARGETS = {0x18d3dd0: 'tail-mapparent', 0x18eb1a0: 'file-helper',
+                    0x18904e0: 'wide-string-file-adapter'}
 MAX_INTERNAL_CALLER_EXAMPLES = 8
 MAX_EH_SIZE = 16 * 1024 * 1024
 MAX_FUNCTION = 32 * 1024
