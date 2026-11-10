@@ -28,7 +28,7 @@ SLOTS = (0x40f1f70, 0x40f1f78)
 KIND = 'worldbox-indirect-slot-probe'
 DEFAULT_WINDOW = 0x1000
 MAX_SECTION = 96 * 1024 * 1024
-MAX_CANDIDATES = 128
+MAX_CANDIDATES = 1024
 MAX_SAMPLES = 12
 ADRP_WINDOW = 36
 FOLLOW_WINDOW = 64
@@ -58,6 +58,17 @@ def fde_reports(path, entries, max_reports=MAX_FDE_REPORTS):
 
 def in_slot_ranges(value, slots, window):
     return [slot for slot in slots if slot - window <= value <= slot + window]
+
+
+def prioritize_candidates(by_location, slots, limit=MAX_CANDIDATES):
+    """Keep all exact slot pointers and nearby non-relocation-table candidates first."""
+    def key(item):
+        location, info = item
+        exact = info['value'] in set(slots)
+        relocation_table = info['section'].startswith('.rela')
+        delta = min(abs(info['value'] - slot) for slot in info['slots'])
+        return (not exact, relocation_table, delta, location)
+    return dict(sorted(by_location.items(), key=key)[:limit])
 
 
 def data_candidates(path, slots, window):
@@ -130,12 +141,13 @@ def data_candidates(path, slots, window):
                                                'rInfoType': int(rel['r_info_type']),
                                                'offsetMatches': list(map(hex, offset_matches)),
                                                'addendMatches': list(map(hex, addend_matches))})
-    limited = dict(list(by_location.items())[:MAX_CANDIDATES])
+    limited = prioritize_candidates(by_location, slots, MAX_CANDIDATES)
     for item in limited.values():
         item['slots'] = sorted(item['slots'])
     return {'results': results, 'byLocation': limited,
             'candidateLocations': len(by_location),
-            'candidateLocationsTruncated': len(by_location) > MAX_CANDIDATES,
+            'codeScanCandidateLocations': len(limited),
+            'candidateLocationsTruncated': len(by_location) > len(limited),
             'candidateSections': dict(sorted(sections.items())),
             'relocationCandidateCount': relocation_count,
             'relocationSamples': relocation_samples,
@@ -305,7 +317,8 @@ def indirect_slot_report(path, slots=SLOTS, window=DEFAULT_WINDOW):
                                for name in ('gotLoadCount', 'slotLoadCount', 'indirectCallCount')},
             'fdeReports': fde_rows, 'fdeReportsTruncated': fde_truncated})
     data_summary = {name: data[name] for name in
-                    ('candidateLocations', 'candidateLocationsTruncated', 'candidateSections',
+                    ('candidateLocations', 'codeScanCandidateLocations',
+                     'candidateLocationsTruncated', 'candidateSections',
                      'relocationCandidateCount', 'relocationSamples',
                      'unsupportedRelocationSections', 'allocatedDataBytes',
                      'allocatedDataScanned', 'dataTruncated')}

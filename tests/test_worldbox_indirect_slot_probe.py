@@ -63,6 +63,19 @@ class IndirectSlotProbeTest(unittest.TestCase):
         self.assertEqual(row['slotLoadSamples'][0]['site'], '0x3008')
         self.assertEqual(row['indirectCallSamples'][0]['site'], '0x300c')
         self.assertEqual(row['fdeReports'][0]['entry'], '0x3000')
+        self.assertGreaterEqual(report['dataScan']['codeScanCandidateLocations'], 1)
+        self.assertFalse(report['dataScan']['candidateLocationsTruncated'])
+
+    def test_candidate_prioritization_keeps_exact_pointers_and_got_sections_first(self):
+        candidates = {
+            0x1300: {'value': 0x6000, 'slots': {0x6008}, 'section': '.rela.dyn'},
+            0x1310: {'value': 0x6004, 'slots': {0x6008}, 'section': '.rela.dyn'},
+            0x6000: {'value': 0x6008, 'slots': {0x6008}, 'section': '.got'},
+        }
+        selected = probe.prioritize_candidates(candidates, (0x6008,), limit=2)
+        self.assertIn(0x6000, selected)
+        self.assertIn(0x1310, selected)
+        self.assertNotIn(0x1300, selected)
 
     def test_annotations_emit_bounded_counts_and_no_literal_bytes(self):
         with tempfile.TemporaryDirectory() as directory:
