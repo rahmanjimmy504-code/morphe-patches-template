@@ -409,6 +409,93 @@ try:
             print('::notice title=WorldBox thunk limitations::' +
                   report.get('limitations', '').replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_GHIDRA_SLOT_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            addresses = ('0x3524bf0', '0x358e170', '0x3590634')
+            targets = ('0x3ae26c4', '0x3adeaf8', '0x18904e0', '0x18eb1a0',
+                       '0x3ae2828', '0x3ae2594')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native)]
+            for address in addresses:
+                command += ['--address', address]
+            for target in targets:
+                command += ['--trace-target', target]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1000)
+            if result.returncode:
+                diagnostic = (result.stderr or result.stdout)[-600:]
+                print('::notice title=WorldBox slot consumer Ghidra::' + json.dumps(
+                    {'status': 'failed', 'diagnostic': diagnostic}, separators=(',', ':'))
+                    .replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+                sys.exit(0)
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'ghidra-callees-probe':
+                raise RuntimeError('Unexpected slot-consumer Ghidra report.')
+            anchors = {site for row in report.get('functions', [])
+                       for site in row.get('anchorSites', [])}
+            if not set(addresses).issubset(anchors):
+                raise RuntimeError('Slot-consumer Ghidra report omitted a requested anchor address.')
+            print('WorldBox full slot consumer Ghidra report: ' +
+                  json.dumps(report, separators=(',', ':')))
+            summary = {'addresses': addresses, 'traceTargets': targets,
+                       'functionCount': len(report.get('functions', [])),
+                       'limitations': report.get('limitations')}
+            print('::warning title=WorldBox slot consumer Ghidra summary::' +
+                  json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
+            for row in report.get('functions', []):
+                compact = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                           'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
+                           'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                           'operationCounts': row.get('operationCounts', {}),
+                           'calls': [{'site': call.get('site'), 'target': call.get('target'),
+                                      'verifiedDirect': call.get('verifiedDirect'),
+                                      'importCategory': call.get('importCategory')}
+                                     for call in row.get('calls', [])[:10]],
+                           'tracedTargetArguments': [{key: item.get(key) for key in
+                              ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds',
+                               'inputRegisters', 'nodes', 'limited')}
+                              for item in row.get('tracedTargetArguments', [])[:12]],
+                           'returnGraphs': [{'roots': graph.get('rootKinds', []),
+                                             'strings': graph.get('stringCategories', []),
+                                             'operations': sorted(graph.get('operationCounts', {})),
+                                             'nodes': graph.get('nodes'),
+                                             'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))}
+                                            for graph in row.get('returnGraphs', [])],
+                           'stringCategories': row.get('stringCategories', []),
+                           'truncated': row.get('truncated')}
+                print('::warning title=WorldBox slot consumer Ghidra::' +
+                      json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
+            from worldbox_native_flow import disassemble_fde
+            for address in addresses:
+                try:
+                    fde_report = disassemble_fde(native, int(address, 0), max_size=8192)
+                except ValueError as exc:
+                    print('::notice title=WorldBox slot consumer instructions unavailable ' + address + '::' +
+                          json.dumps({'status': 'unavailable', 'reason': str(exc)},
+                                     separators=(',', ':')).replace('%', '%25'))
+                    continue
+                print('WorldBox full slot consumer instruction report: ' +
+                      json.dumps(fde_report, separators=(',', ':')))
+                lines = [f"{item['address']} {item['mnemonic']} {item['operands']}".strip().replace('%', '%25')
+                         for item in fde_report['instructions']]
+                selected = lines[:100]
+                parts = [selected[start:start + 50] for start in range(0, len(selected), 50)]
+                for number, part in enumerate(parts, 1):
+                    payload = {'entry': fde_report['entry'], 'size': fde_report['size'],
+                               'decodedInstructions': fde_report['decodedInstructions'],
+                               'fullyDecoded': fde_report['fullyDecoded'],
+                               'chunk': [number, len(parts)],
+                               'instructionsTruncated': len(lines) > len(selected),
+                               'instructions': '|'.join(part)}
+                    print('::notice title=WorldBox slot consumer instructions ' + address +
+                          ' ' + str(number) + '/' + str(len(parts)) + '::' +
+                          json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_HELPER_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')

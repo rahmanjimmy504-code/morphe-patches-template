@@ -251,8 +251,9 @@ jobs:
           WORLDBOX_GHIDRA_IO_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-io') && '1' || '0' }}
           WORLDBOX_GHIDRA_HELPER_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-helper') && '1' || '0' }}
           WORLDBOX_THUNK_CALLERS_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-thunk') && '1' || '0' }}
+          WORLDBOX_GHIDRA_SLOT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-slots') && '1' || '0' }}
           WORLDBOX_GHIDRA_ARMV7_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '1' || '0' }}
-          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-thunk')) && '0' || '1' }}
+          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-thunk') || contains(github.event.head_commit.message, 'worldbox-ghidra-slots')) && '0' || '1' }}
           PYTHONUNBUFFERED: '1'
         run: |
           set -o pipefail
@@ -267,6 +268,16 @@ jobs:
             exit 1
           fi
           grep -E '::(warning|notice) title=WorldBox (file-helper open sequence|adapter tail caller|thunk)' "$output" || true
+      - name: Surface slot-consumer Ghidra annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-ghidra-slots]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox slot consumer' "$output"; then
+            echo 'No slot-consumer Ghidra annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox slot consumer' "$output" || true
   upstream-arm64-probe:
     if: ${{ contains(github.event.head_commit.message, '[worldbox-upstream]') }}
     runs-on: ubuntu-latest
