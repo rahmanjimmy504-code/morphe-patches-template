@@ -409,6 +409,93 @@ try:
             print('::notice title=WorldBox thunk limitations::' +
                   report.get('limitations', '').replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_GHIDRA_ADJACENT_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_adjacent_thunks import reference_report
+            native_report = reference_report(native)
+            addresses = []
+            for row in native_report['rows']:
+                if row['fdeStart']:
+                    addresses.append(row['fdeStart'])
+                for item in row['tailSamples'] + row['pcRelativeSamples']:
+                    if item.get('function'):
+                        addresses.append(item['function'])
+            addresses = sorted(set(addresses))[:6]
+            targets = ('0x3ae2828', '0x3ae2594', '0x3adeaf8', '0x3ae26c4',
+                       '0x18904e0', '0x18eb1a0')
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native)]
+            for address in addresses:
+                command += ['--address', address]
+            for target in targets:
+                command += ['--trace-target', target]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1000)
+            if result.returncode:
+                diagnostic = (result.stderr or result.stdout)[-600:]
+                print('::notice title=WorldBox adjacent thunk Ghidra::' + json.dumps(
+                    {'status': 'failed', 'diagnostic': diagnostic}, separators=(',', ':'))
+                    .replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+                sys.exit(0)
+            report = json.loads(result.stdout)
+            if report.get('kind') != 'ghidra-callees-probe':
+                raise RuntimeError('Unexpected adjacent-thunk Ghidra report.')
+            print('WorldBox full adjacent-thunk Ghidra report: ' +
+                  json.dumps(report, separators=(',', ':')))
+            summary = {'addresses': addresses, 'traceTargets': targets,
+                       'functionCount': len(report.get('functions', [])),
+                       'limitations': report.get('limitations')}
+            print('::warning title=WorldBox adjacent thunk Ghidra summary::' +
+                  json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
+            for row in report.get('functions', []):
+                compact = {'entry': row.get('entry'), 'anchorSites': row.get('anchorSites', []),
+                           'fdeBytes': row.get('fdeBytes'), 'decompiled': row.get('decompiled'),
+                           'status': row.get('status'), 'directCallCount': row.get('directCallCount'),
+                           'operationCounts': row.get('operationCounts', {}),
+                           'calls': [{'site': call.get('site'), 'target': call.get('target'),
+                                      'verifiedDirect': call.get('verifiedDirect'),
+                                      'importCategory': call.get('importCategory')}
+                                     for call in row.get('calls', [])[:10]],
+                           'tracedTargetArguments': [{key: item.get(key) for key in
+                              ('site', 'target', 'argumentIndex', 'stringCategories', 'rootKinds',
+                               'inputRegisters', 'nodes', 'limited')}
+                              for item in row.get('tracedTargetArguments', [])[:12]],
+                           'returnGraphs': [{'roots': graph.get('rootKinds', []),
+                                             'strings': graph.get('stringCategories', []),
+                                             'operations': sorted(graph.get('operationCounts', {})),
+                                             'nodes': graph.get('nodes'),
+                                             'limited': bool(graph.get('nodeLimitReached') or graph.get('depthLimitReached'))}
+                                            for graph in row.get('returnGraphs', [])],
+                           'stringCategories': row.get('stringCategories', []),
+                           'truncated': row.get('truncated')}
+                print('::warning title=WorldBox adjacent thunk Ghidra::' +
+                      json.dumps(compact, separators=(',', ':')).replace('%', '%25'))
+            for native_row in native_report['rows']:
+                for fde in native_row['fdeReports']:
+                    if fde.get('status') == 'unavailable':
+                        print('::notice title=WorldBox adjacent thunk FDE unavailable ' + fde['entry'] + '::' +
+                              json.dumps(fde, separators=(',', ':')).replace('%', '%25'))
+                        continue
+                    lines = [f"{item['address']} {item['mnemonic']} {item['operands']}".strip().replace('%', '%25')
+                             for item in fde['instructions']]
+                    selected = lines[:100]
+                    parts = [selected[start:start + 50] for start in range(0, len(selected), 50)]
+                    for number, part in enumerate(parts, 1):
+                        payload = {'entry': fde['entry'], 'size': fde['size'],
+                                   'decodedInstructions': fde['decodedInstructions'],
+                                   'fullyDecoded': fde['fullyDecoded'],
+                                   'chunk': [number, len(parts)],
+                                   'instructionsTruncated': len(lines) > len(selected),
+                                   'instructions': '|'.join(part)}
+                        print('::notice title=WorldBox adjacent thunk FDE instructions ' + fde['entry'] +
+                              ' ' + str(number) + '/' + str(len(parts)) + '::' +
+                              json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_SLOT_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
@@ -1227,6 +1314,67 @@ try:
                                               for field in ('count', 'samples', 'samplesTruncated')}}
                 print('::warning title=WorldBox metadata path section references ' + key + '::' +
                       json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_ADJACENT_THUNK_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            expected = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
+            if observed != expected:
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_adjacent_thunks import reference_report
+            report = reference_report(native)
+            if report.get('kind') != 'worldbox-adjacent-thunk-probe':
+                raise RuntimeError('Unexpected WorldBox adjacent-thunk report.')
+            print('WorldBox full adjacent-thunk report: ' + json.dumps(report, separators=(',', ':')))
+            summary = {key: report[key] for key in
+                       ('targets', 'unwindStatus', 'unwindRanges', 'limitations')}
+            summary['rows'] = [{'target': row['target'], 'fdeStart': row['fdeStart'],
+                                'fdeSize': row['fdeSize'],
+                                'consumerCounts': {
+                                    'directTailBranches': row['xrefs']['directTailBranches'],
+                                    'pcRelativeAddressPairs': row['xrefs']['pcRelativeAddressPairs'],
+                                    'matchingRelocations': row['xrefs']['matchingRelocations'],
+                                    'alignedPointerValues': row['xrefs']['alignedPointerValues'],
+                                    'tailSamples': len(row['tailSamples']),
+                                    'pcRelativeSamples': len(row['pcRelativeSamples'])},
+                                'fdeReportCount': len(row['fdeReports']),
+                                'fdeReportsTruncated': row['fdeReportsTruncated']}
+                               for row in report['rows']]
+            print('::warning title=WorldBox adjacent thunk summary::' +
+                  json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
+            for row in report['rows']:
+                print('::warning title=WorldBox adjacent thunk xrefs ' + row['target'] + '::' +
+                      json.dumps(row['xrefs'], separators=(',', ':')).replace('%', '%25'))
+                consumers = {'target': row['target'], 'fdeStart': row['fdeStart'],
+                             'fdeSize': row['fdeSize'], 'tailSamples': row['tailSamples'],
+                             'pcRelativeSamples': row['pcRelativeSamples'],
+                             'relocationSamples': row['relocationSamples'],
+                             'pointerSamples': row['pointerSamples'],
+                             'fdeReportEntries': [item.get('entry') for item in row['fdeReports']],
+                             'fdeReportsTruncated': row['fdeReportsTruncated']}
+                print('::warning title=WorldBox adjacent thunk consumers ' + row['target'] + '::' +
+                      json.dumps(consumers, separators=(',', ':')).replace('%', '%25'))
+                for fde in row['fdeReports']:
+                    if fde.get('status') == 'unavailable':
+                        print('::notice title=WorldBox adjacent thunk FDE unavailable ' + fde['entry'] + '::' +
+                              json.dumps(fde, separators=(',', ':')).replace('%', '%25'))
+                        continue
+                    lines = [f"{item['address']} {item['mnemonic']} {item['operands']}".strip().replace('%', '%25')
+                             for item in fde['instructions']]
+                    selected = lines[:100]
+                    parts = [selected[start:start + 50] for start in range(0, len(selected), 50)]
+                    for number, part in enumerate(parts, 1):
+                        payload = {'entry': fde['entry'], 'size': fde['size'],
+                                   'decodedInstructions': fde['decodedInstructions'],
+                                   'fullyDecoded': fde['fullyDecoded'],
+                                   'chunk': [number, len(parts)],
+                                   'instructionsTruncated': len(lines) > len(selected),
+                                   'instructions': '|'.join(part)}
+                        print('::notice title=WorldBox adjacent thunk FDE instructions ' + fde['entry'] +
+                              ' ' + str(number) + '/' + str(len(parts)) + '::' +
+                              json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
         if os.environ.get('WORLDBOX_METADATA_SLOT_PROBE') == '1':
             if not native or not native.is_file():
