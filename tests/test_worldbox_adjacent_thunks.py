@@ -63,6 +63,23 @@ class AdjacentThunkProbeTest(unittest.TestCase):
         self.assertEqual(report['targets'], ['0x1890260', '0x3adec0c'])
         self.assertEqual(len(report['rows']), 2)
 
+    def test_file_adapter_callee_targets_and_trace_targets_are_bounded(self):
+        self.assertEqual(probe.FILE_ADAPTER_TARGETS,
+                         (0x1890260, 0x18eb7a4, 0x18edbb8))
+        self.assertEqual(len(probe.FILE_ADAPTER_TRACE_TARGETS), 13)
+        self.assertIn('0x18eb7a4', probe.FILE_ADAPTER_TRACE_TARGETS)
+        self.assertIn('0x18edbb8', probe.FILE_ADAPTER_TRACE_TARGETS)
+        self.assertIn('0x3bf90c0', probe.FILE_ADAPTER_TRACE_TARGETS)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True, via_helper=True))
+            report = probe.reference_report(path, thunks=probe.FILE_ADAPTER_TARGETS,
+                                            kind=probe.FILE_ADAPTER_KIND)
+        self.assertEqual(report['kind'], probe.FILE_ADAPTER_KIND)
+        self.assertEqual(report['targets'],
+                         ['0x1890260', '0x18eb7a4', '0x18edbb8'])
+        self.assertEqual(len(report['rows']), 3)
+
 
 if __name__ == '__main__':
     unittest.main()

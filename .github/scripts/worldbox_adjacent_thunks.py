@@ -19,6 +19,16 @@ import worldbox_thunk_callers as thunk_helpers
 
 ADJACENT_THUNKS = (0x3ae2828, 0x3ae2594)
 BRANCH_DESTINATIONS = (0x1890260, 0x3adec0c)
+FILE_ADAPTER_CALLER = 0x1890260
+FILE_ADAPTER_CALLEES = (0x18eb7a4, 0x18edbb8)
+FILE_ADAPTER_TARGETS = (FILE_ADAPTER_CALLER,) + FILE_ADAPTER_CALLEES
+FILE_ADAPTER_KIND = 'worldbox-file-adapter-callee-probe'
+FILE_ADAPTER_TRACE_TARGETS = (
+    '0x1890260', '0x18eb7a4', '0x18edbb8', '0x18eb1a0',
+    '0x18ebcb4', '0x18ebe74', '0x18ebfac',
+    '0x3bf8dd0', '0x3bf8de0',
+    '0x3bf90c0', '0x3bf9030', '0x3bf9700', '0x3bf9710',
+)
 THUNKS = ADJACENT_THUNKS
 DEFAULT_KIND = 'worldbox-adjacent-thunk-probe'
 MAX_FDE_REPORTS = 4

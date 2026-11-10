@@ -18,7 +18,7 @@ import zipfile
 import requests
 
 from worldbox_metadata_string_counts import NEEDLES as METADATA_NEEDLES, candidate_string_heap_bases, count_string_leads, nearby_null_identifiers, occurrence_offsets, printable_run_contexts
-from worldbox_bounded_reference_report import emit_ghidra_annotations, emit_ghidra_failure, emit_reference_annotations
+from worldbox_bounded_reference_report import annotation, emit_ghidra_annotations, emit_ghidra_failure, emit_reference_annotations
 
 PAGE = 'https://www.apkmirror.com/apk/mako-mako/worldbox-sandbox-god-simulator/worldbox-sandbox-god-sim-0-51-4-release/worldbox-sandbox-god-sim-0-51-4-android-apk-download/'
 session = requests.Session()
@@ -409,6 +409,61 @@ try:
                                   json.dumps(bounded, separators=(',', ':')).replace('%', '%25'))
             print('::notice title=WorldBox thunk limitations::' +
                   report.get('limitations', '').replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_GHIDRA_FILE_ADAPTER_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_adjacent_thunks import (FILE_ADAPTER_KIND, FILE_ADAPTER_TARGETS,
+                                                  FILE_ADAPTER_TRACE_TARGETS, reference_report)
+            from worldbox_native_flow import MAX_FUNCTION
+            native_report = reference_report(native, thunks=FILE_ADAPTER_TARGETS,
+                                             kind=FILE_ADAPTER_KIND)
+            by_target = {row['target']: row for row in native_report['rows']}
+            addresses, skipped = [], []
+            for target in FILE_ADAPTER_TARGETS:
+                row = by_target.get(hex(target))
+                if (row and row['fdeStart'] and row['fdeSize'] is not None and
+                        row['fdeSize'] <= MAX_FUNCTION):
+                    addresses.append(hex(target))
+                else:
+                    skipped.append({'target': hex(target),
+                                    'fdeStart': row.get('fdeStart') if row else None,
+                                    'fdeSize': row.get('fdeSize') if row else None,
+                                    'reason': 'no bounded FDE'})
+            for row in native_report['rows']:
+                if row['fdeStart'] and row['fdeSize'] is not None and row['fdeSize'] <= MAX_FUNCTION:
+                    addresses.append(row['fdeStart'])
+                for item in row['tailSamples'] + row['pcRelativeSamples']:
+                    if (item.get('function') and item.get('size') is not None and
+                            item['size'] <= MAX_FUNCTION):
+                        addresses.append(item['function'])
+            addresses = sorted(set(addresses))[:6]
+            for item in skipped:
+                print('::notice title=WorldBox file adapter callee Ghidra skipped::' +
+                      annotation(json.dumps(item, separators=(',', ':'))))
+            if not addresses:
+                emit_ghidra_failure('file adapter callee',
+                                    'No bounded FDE addresses were available.')
+                sys.exit(0)
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native)]
+            for address in addresses:
+                command += ['--address', address]
+            for target in FILE_ADAPTER_TRACE_TARGETS:
+                command += ['--trace-target', target]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+            if result.returncode:
+                emit_ghidra_failure('file adapter callee',
+                                    (result.stderr or result.stdout)[-600:])
+                sys.exit(0)
+            report = json.loads(result.stdout)
+            emit_ghidra_annotations(report, 'file adapter callee', tuple(addresses),
+                                    FILE_ADAPTER_TRACE_TARGETS, native_report)
             sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_DESTINATION_PROBE') == '1':
             if not native or not native.is_file():
@@ -1351,6 +1406,21 @@ try:
                                               for field in ('count', 'samples', 'samplesTruncated')}}
                 print('::warning title=WorldBox metadata path section references ' + key + '::' +
                       json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_FILE_ADAPTER_CALLEE_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            expected = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
+            if observed != expected:
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_adjacent_thunks import (FILE_ADAPTER_KIND, FILE_ADAPTER_TARGETS,
+                                                  reference_report)
+            report = reference_report(native, thunks=FILE_ADAPTER_TARGETS,
+                                      kind=FILE_ADAPTER_KIND)
+            emit_reference_annotations(report, 'file adapter callee',
+                                       'file adapter callee', FILE_ADAPTER_KIND)
             sys.exit(0)
         if os.environ.get('WORLDBOX_BRANCH_DESTINATION_PROBE') == '1':
             if not native or not native.is_file():
