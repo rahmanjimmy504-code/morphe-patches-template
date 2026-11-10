@@ -410,6 +410,48 @@ try:
             print('::notice title=WorldBox thunk limitations::' +
                   report.get('limitations', '').replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_GHIDRA_INDIRECT_SLOT_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_indirect_slot_probe import emit_indirect_slot_annotations, indirect_slot_report
+            from worldbox_native_flow import MAX_FUNCTION
+            native_report = indirect_slot_report(native)
+            emit_indirect_slot_annotations(native_report)
+            addresses = []
+            for row in native_report['rows']:
+                for key in ('gotLoadSamples', 'slotLoadSamples', 'indirectCallSamples'):
+                    for item in row[key]:
+                        if (item.get('function') and item.get('size') is not None and
+                                item['size'] <= MAX_FUNCTION):
+                            addresses.append(item['function'])
+            addresses = sorted(set(addresses))[:6]
+            if not addresses:
+                print('::notice title=WorldBox indirect slot Ghidra::' +
+                      annotation(json.dumps({'status': 'no-bounded-consumer-functions'},
+                                            separators=(',', ':'))))
+                sys.exit(0)
+            targets = ('0x3adeaf8', '0x3ae26c4', '0x18904e0', '0x18eb1a0',
+                       '0x1890260', '0x18ee1b8', '0x18eb7a4', '0x18edbb8')
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native)]
+            for address in addresses:
+                command += ['--address', address]
+            for target in targets:
+                command += ['--trace-target', target]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+            if result.returncode:
+                emit_ghidra_failure('indirect slot',
+                                    (result.stderr or result.stdout)[-600:])
+                sys.exit(0)
+            ghidra_report = json.loads(result.stdout)
+            emit_ghidra_annotations(ghidra_report, 'indirect slot', tuple(addresses),
+                                    targets, native_report)
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_FILE_HELPER_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
@@ -1463,6 +1505,17 @@ try:
                                               for field in ('count', 'samples', 'samplesTruncated')}}
                 print('::warning title=WorldBox metadata path section references ' + key + '::' +
                       json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_INDIRECT_SLOT_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            expected = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
+            if observed != expected:
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_indirect_slot_probe import emit_indirect_slot_annotations, indirect_slot_report
+            emit_indirect_slot_annotations(indirect_slot_report(native))
             sys.exit(0)
         if os.environ.get('WORLDBOX_FILE_HELPER_CALLEE_PROBE') == '1':
             if not native or not native.is_file():
