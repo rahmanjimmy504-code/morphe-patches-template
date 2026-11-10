@@ -18,6 +18,7 @@ import zipfile
 import requests
 
 from worldbox_metadata_string_counts import NEEDLES as METADATA_NEEDLES, candidate_string_heap_bases, count_string_leads, nearby_null_identifiers, occurrence_offsets, printable_run_contexts
+from worldbox_bounded_reference_report import emit_ghidra_annotations, emit_ghidra_failure, emit_reference_annotations
 
 PAGE = 'https://www.apkmirror.com/apk/mako-mako/worldbox-sandbox-god-simulator/worldbox-sandbox-god-sim-0-51-4-release/worldbox-sandbox-god-sim-0-51-4-android-apk-download/'
 session = requests.Session()
@@ -408,6 +409,42 @@ try:
                                   json.dumps(bounded, separators=(',', ':')).replace('%', '%25'))
             print('::notice title=WorldBox thunk limitations::' +
                   report.get('limitations', '').replace('%', '%25').replace('\r', '%0D').replace('\n', '%0A'))
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_GHIDRA_DESTINATION_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_adjacent_thunks import BRANCH_DESTINATIONS, reference_report
+            native_report = reference_report(native, thunks=BRANCH_DESTINATIONS,
+                                             kind='worldbox-branch-destination-probe')
+            addresses = [hex(target) for target in BRANCH_DESTINATIONS]
+            for row in native_report['rows']:
+                if row['fdeStart']:
+                    addresses.append(row['fdeStart'])
+                for item in row['tailSamples'] + row['pcRelativeSamples']:
+                    if item.get('function'):
+                        addresses.append(item['function'])
+            addresses = sorted(set(addresses))[:6]
+            targets = ('0x1890260', '0x3adec0c', '0x3ae2828', '0x3ae2594',
+                       '0x18904e0', '0x18eb1a0', '0x3adeaf8', '0x3ae26c4')
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native)]
+            for address in addresses:
+                command += ['--address', address]
+            for target in targets:
+                command += ['--trace-target', target]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1000)
+            if result.returncode:
+                emit_ghidra_failure('branch destination',
+                                    (result.stderr or result.stdout)[-600:])
+                sys.exit(0)
+            report = json.loads(result.stdout)
+            emit_ghidra_annotations(report, 'branch destination', tuple(addresses),
+                                    targets, native_report)
             sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_ADJACENT_PROBE') == '1':
             if not native or not native.is_file():
@@ -1314,6 +1351,21 @@ try:
                                               for field in ('count', 'samples', 'samplesTruncated')}}
                 print('::warning title=WorldBox metadata path section references ' + key + '::' +
                       json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_BRANCH_DESTINATION_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            expected = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
+            if observed != expected:
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_adjacent_thunks import BRANCH_DESTINATIONS, reference_report
+            report = reference_report(native, thunks=BRANCH_DESTINATIONS,
+                                      kind='worldbox-branch-destination-probe')
+            emit_reference_annotations(report, 'branch destination',
+                                       'branch destination',
+                                       'worldbox-branch-destination-probe')
             sys.exit(0)
         if os.environ.get('WORLDBOX_ADJACENT_THUNK_PROBE') == '1':
             if not native or not native.is_file():

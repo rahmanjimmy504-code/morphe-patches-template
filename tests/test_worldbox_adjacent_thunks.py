@@ -52,6 +52,17 @@ class AdjacentThunkProbeTest(unittest.TestCase):
     def test_default_targets_are_the_two_adjacent_thunks(self):
         self.assertEqual(probe.THUNKS, (0x3ae2828, 0x3ae2594))
 
+    def test_branch_destinations_are_accepted_as_custom_targets(self):
+        self.assertEqual(probe.BRANCH_DESTINATIONS, (0x1890260, 0x3adec0c))
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True, via_helper=True))
+            report = probe.reference_report(path, thunks=probe.BRANCH_DESTINATIONS,
+                                            kind='worldbox-branch-destination-probe')
+        self.assertEqual(report['kind'], 'worldbox-branch-destination-probe')
+        self.assertEqual(report['targets'], ['0x1890260', '0x3adec0c'])
+        self.assertEqual(len(report['rows']), 2)
+
 
 if __name__ == '__main__':
     unittest.main()

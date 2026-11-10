@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bounded reference and exact-FDE report for adjacent thunk targets.
+"""Bounded reference and exact-FDE report for selected ARM64 code targets.
 
 Only aggregate counts, safe addresses, section names, FDE-relative addresses and
 decoded ARM64 mnemonics/operands are emitted. No game bytes or unknown strings
@@ -17,7 +17,10 @@ import worldbox_native_flow as flow
 import worldbox_native_xrefs as xrefs
 import worldbox_thunk_callers as thunk_helpers
 
-THUNKS = (0x3ae2828, 0x3ae2594)
+ADJACENT_THUNKS = (0x3ae2828, 0x3ae2594)
+BRANCH_DESTINATIONS = (0x1890260, 0x3adec0c)
+THUNKS = ADJACENT_THUNKS
+DEFAULT_KIND = 'worldbox-adjacent-thunk-probe'
 MAX_FDE_REPORTS = 4
 MAX_FDE_SIZE = 32 * 1024
 MAX_SAMPLES = 12
@@ -68,7 +71,7 @@ def compact_xrefs(report):
         'limitations': report.get('limitations')}
 
 
-def reference_report(path, thunks=THUNKS):
+def reference_report(path, thunks=THUNKS, kind=DEFAULT_KIND):
     with Path(path).open('rb') as f:
         elf = ELFFile(f)
         if elf.elfclass != 64 or not elf.little_endian or elf['e_machine'] != 'EM_AARCH64':
@@ -101,7 +104,7 @@ def reference_report(path, thunks=THUNKS):
                      'tailSamples': tail_samples, 'pcRelativeSamples': pair_samples,
                      'relocationSamples': reloc_samples, 'pointerSamples': pointer_samples,
                      'fdeReports': fde_rows, 'fdeReportsTruncated': fde_truncated})
-    return {'kind': 'worldbox-adjacent-thunk-probe', 'targets': list(map(hex, thunks)),
+    return {'kind': kind, 'targets': list(map(hex, thunks)),
             'unwindStatus': unwind_status, 'unwindRanges': len(frames), 'rows': rows,
             'limitations': 'Linear instruction decoding and aligned-word matching identify static candidates, not executed control flow. Indirect references, packed relocations, GOT loads, writable globals and runtime-generated pointers are not fully modeled.'}
 
@@ -110,9 +113,10 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('elf')
     parser.add_argument('--target', action='append', type=lambda value: int(value, 0))
+    parser.add_argument('--kind', default=DEFAULT_KIND)
     args = parser.parse_args()
-    print(json.dumps(reference_report(args.elf, tuple(args.target) if args.target else THUNKS),
-                     separators=(',', ':')))
+    print(json.dumps(reference_report(args.elf, tuple(args.target) if args.target else THUNKS,
+                                     kind=args.kind), separators=(',', ':')))
 
 
 if __name__ == '__main__':
