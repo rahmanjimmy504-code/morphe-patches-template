@@ -1141,6 +1141,62 @@ try:
                 print('::warning title=WorldBox metadata path section references ' + key + '::' +
                       json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
             sys.exit(0)
+        if os.environ.get('WORLDBOX_METADATA_SLOT_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            expected = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
+            if observed != expected:
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_metadata_slot_probe import slot_reference_report
+            report = slot_reference_report(native)
+            if report.get('kind') != 'worldbox-metadata-slot-probe':
+                raise RuntimeError('Unexpected WorldBox metadata slot report.')
+            print('WorldBox full metadata slot report: ' + json.dumps(report, separators=(',', ':')))
+            summary = {key: report[key] for key in
+                       ('slots', 'unwindStatus', 'unwindRanges', 'slotLoadScan', 'limitations')}
+            summary['rows'] = [{'slot': row['slot'],
+                                'consumerCounts': {'adrpAddSamples': len(row['adrpAddSamples']),
+                                                   'adrpLdrSamples': len(row['adrpLdrSamples']),
+                                                   'pcRelativeAddressPairs': row['xrefs']['pcRelativeAddressPairs'],
+                                                   'directTailBranches': row['xrefs']['directTailBranches'],
+                                                   'matchingRelocations': row['xrefs']['matchingRelocations'],
+                                                   'alignedPointerValues': row['xrefs']['alignedPointerValues']},
+                                'fdeReportCount': len(row['fdeReports']),
+                                'fdeReportsTruncated': row['fdeReportsTruncated']}
+                               for row in report['rows']]
+            print('::warning title=WorldBox metadata slot summary::' +
+                  json.dumps(summary, separators=(',', ':')).replace('%', '%25'))
+            for row in report['rows']:
+                print('::warning title=WorldBox metadata slot xrefs ' + row['slot'] + '::' +
+                      json.dumps(row['xrefs'], separators=(',', ':')).replace('%', '%25'))
+                consumers = {'slot': row['slot'], 'adrpAddSamples': row['adrpAddSamples'],
+                             'adrpLdrSamples': row['adrpLdrSamples'],
+                             'fdeReportEntries': [item.get('entry') for item in row['fdeReports']],
+                             'fdeReportsTruncated': row['fdeReportsTruncated']}
+                print('::warning title=WorldBox metadata slot consumers ' + row['slot'] + '::' +
+                      json.dumps(consumers, separators=(',', ':')).replace('%', '%25'))
+                for fde in row['fdeReports']:
+                    if fde.get('status') == 'unavailable':
+                        print('::notice title=WorldBox metadata slot FDE unavailable ' + fde['entry'] + '::' +
+                              json.dumps(fde, separators=(',', ':')).replace('%', '%25'))
+                        continue
+                    lines = [f"{item['address']} {item['mnemonic']} {item['operands']}".strip().replace('%', '%25')
+                             for item in fde['instructions']]
+                    selected = lines[:100]
+                    parts = [selected[start:start + 50] for start in range(0, len(selected), 50)]
+                    for number, part in enumerate(parts, 1):
+                        payload = {'entry': fde['entry'], 'size': fde['size'],
+                                   'decodedInstructions': fde['decodedInstructions'],
+                                   'fullyDecoded': fde['fullyDecoded'],
+                                   'chunk': [number, len(parts)],
+                                   'instructionsTruncated': len(lines) > len(selected),
+                                   'instructions': '|'.join(part)}
+                        print('::notice title=WorldBox metadata slot FDE instructions ' + fde['entry'] +
+                              ' ' + str(number) + '/' + str(len(parts)) + '::' +
+                              json.dumps(payload, separators=(',', ':')).replace('%', '%25'))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_NATIVE_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
