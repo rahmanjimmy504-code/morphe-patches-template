@@ -80,6 +80,23 @@ class AdjacentThunkProbeTest(unittest.TestCase):
                          ['0x1890260', '0x18eb7a4', '0x18edbb8'])
         self.assertEqual(len(report['rows']), 3)
 
+    def test_file_helper_callee_targets_and_trace_targets_are_bounded(self):
+        self.assertEqual(probe.FILE_HELPER_TARGETS,
+                         (0x18d3bec, 0x18d3c20, 0x18ee1b8))
+        self.assertEqual(len(probe.FILE_HELPER_TRACE_TARGETS), 16)
+        for target in ('0x18d3bec', '0x18d3c20', '0x18ee1b8',
+                       '0x3bf90c0', '0x3bf9710'):
+            self.assertIn(target, probe.FILE_HELPER_TRACE_TARGETS)
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(fixture(eh_frame=True, via_helper=True))
+            report = probe.reference_report(path, thunks=probe.FILE_HELPER_TARGETS,
+                                            kind=probe.FILE_HELPER_KIND)
+        self.assertEqual(report['kind'], probe.FILE_HELPER_KIND)
+        self.assertEqual(report['targets'],
+                         ['0x18d3bec', '0x18d3c20', '0x18ee1b8'])
+        self.assertEqual(len(report['rows']), 3)
+
 
 if __name__ == '__main__':
     unittest.main()

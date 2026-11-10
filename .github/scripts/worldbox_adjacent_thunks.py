@@ -29,6 +29,15 @@ FILE_ADAPTER_TRACE_TARGETS = (
     '0x3bf8dd0', '0x3bf8de0',
     '0x3bf90c0', '0x3bf9030', '0x3bf9700', '0x3bf9710',
 )
+FILE_HELPER_TARGETS = (0x18d3bec, 0x18d3c20, 0x18ee1b8)
+FILE_HELPER_KIND = 'worldbox-file-helper-callee-probe'
+FILE_HELPER_TRACE_TARGETS = (
+    '0x1890260', '0x18eb7a4', '0x18edbb8',
+    '0x18d3bec', '0x18d3c20', '0x18ee1b8',
+    '0x18eb1a0', '0x18ebcb4', '0x18ebe74', '0x18ebfac',
+    '0x3bf8dd0', '0x3bf8de0',
+    '0x3bf90c0', '0x3bf9030', '0x3bf9700', '0x3bf9710',
+)
 THUNKS = ADJACENT_THUNKS
 DEFAULT_KIND = 'worldbox-adjacent-thunk-probe'
 MAX_FDE_REPORTS = 4
