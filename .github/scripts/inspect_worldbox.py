@@ -92,6 +92,40 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_GHIDRA_BROTLI_CALLERS_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_brotli_callers import (callers_report,
+                                                 emit_callers_annotations)
+            native_report = callers_report(native)
+            emit_callers_annotations(native_report)
+            addresses = native_report['ghidraAddresses']
+            targets = native_report['traceTargets']
+            if not addresses:
+                print('::notice title=WorldBox brotli caller consumer Ghidra::' +
+                      annotation(json.dumps({'status': 'no-bounded-caller-functions'},
+                                            separators=(',', ':'))))
+                sys.exit(0)
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native)]
+            for address in addresses:
+                command += ['--address', address]
+            for target in targets:
+                command += ['--trace-target', target]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+            if result.returncode:
+                emit_ghidra_failure('brotli caller consumer',
+                                    (result.stderr or result.stdout)[-600:])
+                sys.exit(0)
+            ghidra_report = json.loads(result.stdout)
+            emit_ghidra_annotations(ghidra_report, 'brotli caller consumer',
+                                    tuple(addresses), tuple(targets), native_report)
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_BROTLI_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')

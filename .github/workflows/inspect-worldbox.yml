@@ -20,6 +20,7 @@ on:
       - .github/scripts/worldbox_metadata_file_descriptor.py
       - .github/scripts/worldbox_metadata_transform_probe.py
       - .github/scripts/worldbox_metadata_stream_probe.py
+      - .github/scripts/worldbox_brotli_callers.py
       - .github/scripts/worldbox_native_import_probe.py
       - .github/scripts/worldbox_ghidra_probe.py
       - .github/scripts/worldbox_ghidra_callees.py
@@ -78,6 +79,7 @@ on:
       - tests/test_worldbox_metadata_file_descriptor.py
       - tests/test_worldbox_metadata_transform_probe.py
       - tests/test_worldbox_metadata_stream_probe.py
+      - tests/test_worldbox_brotli_callers.py
       - tests/test_worldbox_native_import_probe.py
       - docs/worldbox/scan-metadata.js
       - tests/worldbox-metadata-scanner.test.cjs
@@ -211,6 +213,7 @@ jobs:
           python tests/test_worldbox_metadata_transform_probe.py
           python tests/test_worldbox_native_import_probe.py
           python tests/test_worldbox_metadata_stream_probe.py
+          python tests/test_worldbox_brotli_callers.py
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/ghidra.zip" https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.4.3_build/ghidra_11.4.3_PUBLIC_20251203.zip
           echo "b22a8baebb14339f19903c54363ba7e01781930cc43ab430539aabce0d58547a  $RUNNER_TEMP/ghidra.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra"
@@ -283,8 +286,9 @@ jobs:
           WORLDBOX_GHIDRA_INDIRECT_SLOT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots') && '1' || '0' }}
           WORLDBOX_GHIDRA_NATIVE_IMPORT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports') && '1' || '0' }}
           WORLDBOX_GHIDRA_BROTLI_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') && '1' || '0' }}
+          WORLDBOX_GHIDRA_BROTLI_CALLERS_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') && '1' || '0' }}
           WORLDBOX_GHIDRA_ARMV7_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '1' || '0' }}
-          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-thunk') || contains(github.event.head_commit.message, 'worldbox-ghidra-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-adjacent') || contains(github.event.head_commit.message, 'worldbox-ghidra-destinations') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-adapter') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports') || contains(github.event.head_commit.message, 'worldbox-ghidra-brotli')) && '0' || '1' }}
+          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-thunk') || contains(github.event.head_commit.message, 'worldbox-ghidra-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-adjacent') || contains(github.event.head_commit.message, 'worldbox-ghidra-destinations') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-adapter') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports') || contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') || contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers')) && '0' || '1' }}
           PYTHONUNBUFFERED: '1'
         run: |
           set -o pipefail
@@ -389,6 +393,26 @@ jobs:
             exit 1
           fi
           grep -E '::(warning|notice) title=WorldBox native import (symbols|consumers)' "$output" || true
+      - name: Surface brotli caller consumer Ghidra annotations
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox brotli caller consumer' "$output"; then
+            echo 'No brotli-caller consumer Ghidra annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox brotli caller consumer' "$output" || true
+      - name: Surface brotli caller map annotations
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox brotli callers' "$output"; then
+            echo 'No brotli-caller map annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox brotli callers' "$output" || true
   upstream-arm64-probe:
     if: ${{ contains(github.event.head_commit.message, '[worldbox-upstream]') }}
     runs-on: ubuntu-latest
