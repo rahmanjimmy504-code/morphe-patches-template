@@ -96,6 +96,10 @@ on:
       - tests/test_worldbox_proc_scan.py
 permissions:
   contents: read
+# Keep only the newest queued/in-progress investigation run for this branch.
+concurrency:
+  group: inspect-worldbox-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   inspect:
     runs-on: ubuntu-latest
