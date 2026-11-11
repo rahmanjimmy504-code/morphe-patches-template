@@ -2,6 +2,7 @@
 import contextlib
 import hashlib
 import io
+import json
 from pathlib import Path
 import sys
 import tempfile
@@ -42,6 +43,34 @@ class BrotliCallersTest(unittest.TestCase):
         self.assertIn('::warning title=WorldBox brotli callers summary::', output)
         self.assertIn('::warning title=WorldBox brotli callers 0x2000::', output)
         self.assertNotIn('DO-NOT-EMIT-LITERAL', output)
+
+    def test_predefined_brotli_export_is_described_safely(self):
+        data = synthetic_elf(['open'],
+                             defined=[('BrotliDecoderDecompress', 0x3000)])
+        sha = hashlib.sha256(data).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = probe.callers_report(path, expected_sha=sha,
+                                          targets=(0x3000,))
+        descriptors = report['rows'][0]['indirectStaticReferences']['symbolDescriptors']
+        self.assertTrue(any(item['safeName'] == 'BrotliDecoderDecompress'
+                            for item in descriptors))
+        self.assertTrue(all(len(item['nameSha256']) == 64 for item in descriptors))
+
+    def test_unknown_export_name_is_not_emitted(self):
+        data = synthetic_elf(['open'],
+                             defined=[('mystery_export', 0x3000)])
+        sha = hashlib.sha256(data).hexdigest()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'fixture.so'
+            path.write_bytes(data)
+            report = probe.callers_report(path, expected_sha=sha,
+                                          targets=(0x3000,))
+        descriptors = report['rows'][0]['indirectStaticReferences']['symbolDescriptors']
+        self.assertTrue(descriptors)
+        self.assertTrue(all(item['safeName'] is None for item in descriptors))
+        self.assertNotIn('mystery_export', json.dumps(report))
 
     def test_hash_gate_rejects_mismatched_library(self):
         data = synthetic_elf(['open'])

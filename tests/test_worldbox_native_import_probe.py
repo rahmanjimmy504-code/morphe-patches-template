@@ -28,7 +28,7 @@ def br(register):
     return 0xd61f0000 | (register << 5)
 
 
-def synthetic_elf(imports, needed=()):
+def synthetic_elf(imports, needed=(), defined=()):
     names = ['', '.shstrtab', '.dynstr', '.dynsym', '.rela.plt', '.plt',
              '.text', '.dynamic', '.eh_frame']
     shstr = b'\0'
@@ -45,9 +45,15 @@ def synthetic_elf(imports, needed=()):
     for name in needed:
         needed_offsets[name] = len(dynstr)
         dynstr += name.encode() + b'\0'
+    defined_offsets = {}
+    for name, _value in defined:
+        defined_offsets[name] = len(dynstr)
+        dynstr += name.encode() + b'\0'
     dynsym = bytes(24)
     for name in imports:
         dynsym += struct.pack('<IBBHQQ', symbol_offsets[name], 0x12, 0, 0, 0, 0)
+    for name, value in defined:
+        dynsym += struct.pack('<IBBHQQ', defined_offsets[name], 0x12, 0, 6, value, 16)
     rela_plt = b''.join(
         struct.pack('<QQq', 0x5010 + 8 * index, ((index + 1) << 32) | 1026, 0)
         for index in range(len(imports)))

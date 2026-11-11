@@ -13,6 +13,7 @@ import json
 from pathlib import Path
 
 from elftools.elf.elffile import ELFFile
+from elftools.elf.sections import SymbolTableSection
 
 import worldbox_native_flow as flow
 import worldbox_native_scan as triage
@@ -32,9 +33,18 @@ MAX_SAMPLES = 12
 MAX_FDE_REPORTS = 6
 MAX_FDE_SIZE = 32 * 1024
 MAX_GHIDRA_ADDRESSES = 6
+SAFE_BROTLI_EXPORTS = frozenset({
+    'BrotliDecoderCreateInstance', 'BrotliDecoderDestroyInstance',
+    'BrotliDecoderDecompress', 'BrotliDecoderDecompressStream',
+    'BrotliDecoderHasMoreOutput', 'BrotliDecoderTakeOutput',
+    'BrotliDecoderIsUsed', 'BrotliDecoderIsFinished',
+    'BrotliDecoderGetErrorCode', 'BrotliDecoderErrorString',
+    'BrotliDecoderVersion',
+})
 LIMITATIONS = (
     'This bounded linear scan finds direct BL and tail-branch candidates to the Brotli wrapper and its two small state helpers in the hash-gated ARM64 libil2cpp.so, and separately counts static pointer, relocation and PC-relative references. '
     'It does not model indirect calls, packed relocations, GOT loads, writable globals, runtime-generated pointers, or executed control flow. '
+    'Dynamic-symbol matches are described only by a predefined Brotli API name or a hash; unknown names are never emitted. '
     'It emits no raw game bytes, unknown strings, metadata content, loader identification or Premium behavior.'
 )
 
@@ -42,6 +52,31 @@ LIMITATIONS = (
 def sha256_file(path):
     with Path(path).open('rb') as handle:
         return hashlib.file_digest(handle, 'sha256').hexdigest()
+
+
+def symbol_descriptors(path, target):
+    """Describe dynamic-symbol matches without emitting unknown symbol names."""
+    descriptors = []
+    with Path(path).open('rb') as handle:
+        elf = ELFFile(handle)
+        for section in elf.iter_sections():
+            if not isinstance(section, SymbolTableSection):
+                continue
+            for symbol in section.iter_symbols():
+                if (symbol['st_value'] != target or
+                        symbol['st_shndx'] == 'SHN_UNDEF' or
+                        symbol['st_info']['type'] != 'STT_FUNC'):
+                    continue
+                name = symbol.name
+                descriptors.append({
+                    'section': section.name,
+                    'safeName': name if name in SAFE_BROTLI_EXPORTS else None,
+                    'nameSha256': hashlib.sha256(name.encode('utf-8', 'replace')).hexdigest(),
+                    'bind': symbol['st_info']['bind'],
+                    'value': hex(symbol['st_value']),
+                    'size': symbol['st_size'],
+                })
+    return descriptors[:MAX_SAMPLES]
 
 
 def callers_report(path, expected_sha=EXPECTED_IL2CPP, targets=TARGETS):
@@ -93,6 +128,7 @@ def callers_report(path, expected_sha=EXPECTED_IL2CPP, targets=TARGETS):
                 entries.append(int(item['function'], 16))
         fde_rows, truncated = fde_reports(path, entries)
         static = xrefs.inspect(path, target=target)
+        descriptors = symbol_descriptors(path, target)
         rows.append({
             'target': hex(target), 'directCallCount': counts[target],
             'callSamples': samples[target], 'fdeReports': fde_rows,
@@ -107,6 +143,8 @@ def callers_report(path, expected_sha=EXPECTED_IL2CPP, targets=TARGETS):
                 'unsupportedRelocationSections': static['matchingRelocations']['unsupportedRelocationSections'],
                 'alignedPointerCount': static['alignedPointerValues']['count'],
                 'pointerSamples': static['alignedPointerValues']['samples'][:MAX_SAMPLES],
+                'symbolDescriptors': descriptors,
+                'symbolDescriptorsTruncated': len(descriptors) >= MAX_SAMPLES,
                 'dataTruncated': static['dataTruncated'],
             },
         })
