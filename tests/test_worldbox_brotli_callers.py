@@ -30,6 +30,10 @@ class BrotliCallersTest(unittest.TestCase):
         self.assertEqual(report['rows'][0]['callSamples'][0]['site'], '0x3000')
         self.assertIn('0x3000', report['rows'][0]['fdeReportEntries'])
         self.assertIn('0x3000', report['ghidraAddresses'])
+        static = report['rows'][0]['indirectStaticReferences']
+        self.assertIsInstance(static['alignedPointerCount'], int)
+        self.assertIsInstance(static['matchingRelocationCount'], int)
+        self.assertIsInstance(static['directTailBranchCount'], int)
         self.assertFalse(report['ghidraAddressesTruncated'])
         buffer = io.StringIO()
         with contextlib.redirect_stdout(buffer):

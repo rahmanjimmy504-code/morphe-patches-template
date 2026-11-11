@@ -33,7 +33,7 @@ MAX_FDE_REPORTS = 6
 MAX_FDE_SIZE = 32 * 1024
 MAX_GHIDRA_ADDRESSES = 6
 LIMITATIONS = (
-    'This bounded linear scan finds direct BL and tail-branch candidates to the Brotli wrapper and its two small state helpers in the hash-gated ARM64 libil2cpp.so. '
+    'This bounded linear scan finds direct BL and tail-branch candidates to the Brotli wrapper and its two small state helpers in the hash-gated ARM64 libil2cpp.so, and separately counts static pointer, relocation and PC-relative references. '
     'It does not model indirect calls, packed relocations, GOT loads, writable globals, runtime-generated pointers, or executed control flow. '
     'It emits no raw game bytes, unknown strings, metadata content, loader identification or Premium behavior.'
 )
@@ -92,11 +92,23 @@ def callers_report(path, expected_sha=EXPECTED_IL2CPP, targets=TARGETS):
             if item['function'] and item['size'] is not None and item['size'] <= flow.MAX_FUNCTION:
                 entries.append(int(item['function'], 16))
         fde_rows, truncated = fde_reports(path, entries)
+        static = xrefs.inspect(path, target=target)
         rows.append({
             'target': hex(target), 'directCallCount': counts[target],
             'callSamples': samples[target], 'fdeReports': fde_rows,
             'fdeReportEntries': [item.get('entry') for item in fde_rows],
             'fdeReportsTruncated': truncated,
+            'indirectStaticReferences': {
+                'symbolMatches': static['symbolMatches'],
+                'directTailBranchCount': static['directTailBranches']['count'],
+                'pcRelativePairCount': static['pcRelativeAddressPairs']['count'],
+                'matchingRelocationCount': static['matchingRelocations']['count'],
+                'relocationSamples': static['matchingRelocations']['samples'][:MAX_SAMPLES],
+                'unsupportedRelocationSections': static['matchingRelocations']['unsupportedRelocationSections'],
+                'alignedPointerCount': static['alignedPointerValues']['count'],
+                'pointerSamples': static['alignedPointerValues']['samples'][:MAX_SAMPLES],
+                'dataTruncated': static['dataTruncated'],
+            },
         })
     addresses = []
     for row in rows:
@@ -154,6 +166,9 @@ def emit_callers_annotations(report):
                     'fdeReportEntries', 'fdeReportsTruncated')}
         print('::warning title=WorldBox brotli callers ' + row['target'] + '::' +
               annotation(json.dumps(compact, separators=(',', ':'))))
+        print('::warning title=WorldBox brotli caller static refs ' + row['target'] + '::' +
+              annotation(json.dumps(row['indirectStaticReferences'],
+                                    separators=(',', ':'))))
         for fde in row['fdeReports']:
             key = (fde.get('entry'), fde.get('size'), fde.get('status'))
             if key in emitted:

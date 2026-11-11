@@ -285,7 +285,7 @@ jobs:
           WORLDBOX_GHIDRA_FILE_HELPER_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-file-helper') && '1' || '0' }}
           WORLDBOX_GHIDRA_INDIRECT_SLOT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots') && '1' || '0' }}
           WORLDBOX_GHIDRA_NATIVE_IMPORT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports') && '1' || '0' }}
-          WORLDBOX_GHIDRA_BROTLI_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') && '1' || '0' }}
+          WORLDBOX_GHIDRA_BROTLI_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') && !contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') && '1' || '0' }}
           WORLDBOX_GHIDRA_BROTLI_CALLERS_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') && '1' || '0' }}
           WORLDBOX_GHIDRA_ARMV7_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '1' || '0' }}
           WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-thunk') || contains(github.event.head_commit.message, 'worldbox-ghidra-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-adjacent') || contains(github.event.head_commit.message, 'worldbox-ghidra-destinations') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-adapter') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports') || contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') || contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers')) && '0' || '1' }}
@@ -374,7 +374,7 @@ jobs:
           fi
           grep -E '::(warning|notice) title=WorldBox native import caller' "$output" || true
       - name: Surface brotli caller Ghidra annotations
-        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') }}
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') && !contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') }}
         run: |
           output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
           test -s "$output"
@@ -384,7 +384,7 @@ jobs:
           fi
           grep -E '::(warning|notice) title=WorldBox brotli caller' "$output" || true
       - name: Surface brotli-branch import maps
-        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') }}
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli') && !contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') }}
         run: |
           output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
           test -s "$output"
@@ -413,6 +413,16 @@ jobs:
             exit 1
           fi
           grep -E '::(warning|notice) title=WorldBox brotli callers' "$output" || true
+      - name: Surface brotli caller static-reference annotations
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-brotli-callers') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox brotli caller static refs' "$output"; then
+            echo 'No Brotli-caller static-reference annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox brotli caller static refs' "$output" || true
   upstream-arm64-probe:
     if: ${{ contains(github.event.head_commit.message, '[worldbox-upstream]') }}
     runs-on: ubuntu-latest
