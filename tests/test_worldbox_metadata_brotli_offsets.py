@@ -1,4 +1,5 @@
 """Synthetic tests for safe bounded Brotli start-offset trials."""
+# The late sparse sweep is covered by test_scan_offsets_covers_late_file.
 import contextlib
 import hashlib
 import io
