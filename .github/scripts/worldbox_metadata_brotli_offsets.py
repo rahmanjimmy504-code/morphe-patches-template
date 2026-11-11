@@ -32,13 +32,14 @@ PREFIX_CHUNK = 1024
 MAX_PREFIX_OUTPUT = 1024 * 1024
 MIN_PREFIX_OUTPUT = 64
 MAX_HEADER_INPUT = 16 * 1024
-MAX_QUICK_CANDIDATES = 64
+MAX_QUICK_CANDIDATES = 2048
 MAX_FULL_CANDIDATES = 8
 FINE_OFFSETS = 4096
 COARSE_LIMIT = 65536
 COARSE_STEP = 64
+LATE_COARSE_STEP = 4096
 LIMITATIONS = (
-    'This bounded trial tests standard Brotli streams beginning at offsets 0 through 4095 and then every 64th offset through 65535, using a 64 KiB prefix filter, a 64-byte minimum prefix output (or decoder completion), a bounded 16 KiB header trial and a 64 MiB full-output cap. '
+    'This bounded trial tests standard Brotli streams beginning at offsets 0 through 4095, every 64th offset through 65535, and every 4096th offset thereafter through the file, using a 64 KiB prefix filter, a 64-byte minimum prefix output (or decoder completion), a bounded 16 KiB header trial and a 64 MiB full-output cap. '
     'Full trials feed bytes one at a time so unrelated trailing bytes do not invalidate a decoded stream. '
     'It does not model custom dictionaries, nonstandard decoder parameters, concatenated streams, per-block keys, encryption, encoding, runtime transformation or a custom header layout. '
     'A candidate decompression is not proof of usable IL2CPP metadata; a failed trial does not prove the file is encrypted. '
@@ -46,10 +47,11 @@ LIMITATIONS = (
 )
 
 
-def scan_offsets():
-    """Dense start near the file header, then a bounded coarse sweep."""
-    return sorted(set(range(0, FINE_OFFSETS)) |
-                  set(range(FINE_OFFSETS, COARSE_LIMIT, COARSE_STEP)))
+def scan_offsets(size):
+    """Dense near the header, sparse to 64 KiB, then sparse through the file."""
+    return sorted(set(range(0, min(FINE_OFFSETS, size))) |
+                  set(range(FINE_OFFSETS, min(COARSE_LIMIT, size), COARSE_STEP)) |
+                  set(range(COARSE_LIMIT, size, LATE_COARSE_STEP)))
 
 
 def prefix_trial(data, offset, max_prefix=MAX_PREFIX_BYTES,
@@ -150,7 +152,7 @@ def offset_report(path, expected_sha=EXPECTED_METADATA_SHA256,
     if expected_size is not None and size != expected_size:
         raise ValueError('Metadata file size mismatch; refusing offset trial.')
     if offsets is None:
-        offsets = scan_offsets()
+        offsets = scan_offsets(size)
     offsets = sorted({int(value) for value in offsets
                       if 0 <= int(value) < size})
     data = path.read_bytes()
@@ -168,8 +170,8 @@ def offset_report(path, expected_sha=EXPECTED_METADATA_SHA256,
             continue
         plausible.append({'offset': hex(offset), 'offsetBytes': offset,
                           'prefix': prefix})
-    plausible.sort(key=lambda item: (-item['prefix'].get('producedBytes', 0),
-                                     item['offsetBytes']))
+    # Offset order keeps the dense header scan complete before any cap applies.
+    plausible.sort(key=lambda item: item['offsetBytes'])
     quick = plausible[:max_quick_candidates]
     quick_results = []
     header_statuses = {}
@@ -197,6 +199,8 @@ def offset_report(path, expected_sha=EXPECTED_METADATA_SHA256,
             'fineOffsetCount': FINE_OFFSETS,
             'coarseLimit': COARSE_LIMIT,
             'coarseStep': COARSE_STEP,
+            'lateCoarseStep': LATE_COARSE_STEP,
+            'lateCoarseLimit': size,
             'prefixBytes': max_prefix,
             'prefixChunkBytes': PREFIX_CHUNK,
             'prefixOutputCap': max_prefix_output,

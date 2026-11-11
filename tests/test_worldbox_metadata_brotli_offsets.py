@@ -81,6 +81,15 @@ class MetadataBrotliOffsetsTest(unittest.TestCase):
         self.assertEqual(report['candidates'][0]['full']['status'],
                          'output-cap-exceeded')
 
+    def test_scan_offsets_covers_late_file(self):
+        offsets = probe.scan_offsets(100_000)
+        self.assertIn(0, offsets)
+        self.assertIn(4095, offsets)
+        self.assertIn(4096, offsets)
+        self.assertIn(65_536, offsets)
+        self.assertIn(69_632, offsets)
+        self.assertGreater(len(offsets), 5000)
+
     def test_hash_gate_rejects_mismatched_metadata(self):
         data = bytes(16) + brotli.compress(standard_data())
         with tempfile.TemporaryDirectory() as directory:
