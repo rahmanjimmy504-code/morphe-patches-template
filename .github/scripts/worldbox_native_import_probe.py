@@ -167,7 +167,7 @@ def library_report(path, library, expected_hash):
             if label:
                 category_symbol_counts[label] += 1
                 matched_names.add(symbol.name)
-        relocs = {}
+        reloc_symbols = {}
         for section in elf.iter_sections():
             if not isinstance(section, RelocationSection) or '.plt' not in section.name:
                 continue
@@ -179,10 +179,18 @@ def library_report(path, library, expected_hash):
                 if index >= symbols.num_symbols():
                     continue
                 name = symbols.get_symbol(index).name
-                label = SYMBOL_TO_CATEGORY.get(name)
-                if label:
-                    relocs[relocation['r_offset']] = label
-        plt, plt_stub_count = triage.plt_targets(elf, relocs)
+                if name in SYMBOL_TO_CATEGORY:
+                    reloc_symbols[relocation['r_offset']] = name
+        reloc_labels = {offset: SYMBOL_TO_CATEGORY[name]
+                        for offset, name in reloc_symbols.items()}
+        plt, plt_stub_count = triage.plt_targets(elf, reloc_labels)
+        plt_names, _ = triage.plt_targets(elf, reloc_symbols)
+        plt_symbol_map = {}
+        for address in sorted(set(plt) & set(plt_names)):
+            name = plt_names[address]
+            label = SYMBOL_TO_CATEGORY.get(name)
+            if label:
+                plt_symbol_map[hex(address)] = {'symbol': name, 'category': label}
         plt_by_category = {label: [] for label in IMPORT_CATEGORIES}
         for address, label in sorted(plt.items()):
             if label in plt_by_category:
@@ -281,6 +289,7 @@ def library_report(path, library, expected_hash):
                 'dynamicDependencyLabels': dependency_labels,
                 'pltStubCount': plt_stub_count,
                 'pltByCategory': plt_by_category,
+                'pltSymbolMap': plt_symbol_map,
                 'pltStubsTruncated': plt_stubs_truncated,
                 'executableBytes': total, 'executableScanned': scanned,
                 'execTruncated': scanned < total,
@@ -361,6 +370,10 @@ def emit_import_annotations(report):
         print('::warning title=WorldBox native import categories ' + library['library'] + '::' +
               annotation(json.dumps({'library': library['library'],
                                      'categoryRows': library['categoryRows']},
+                                    separators=(',', ':'))))
+        print('::warning title=WorldBox native import symbols ' + library['library'] + '::' +
+              annotation(json.dumps({'library': library['library'],
+                                     'pltSymbolMap': library['pltSymbolMap']},
                                     separators=(',', ':'))))
         for category, stubs in library['pltByCategory'].items():
             payload = {'library': library['library'], 'category': category,

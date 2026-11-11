@@ -125,6 +125,9 @@ class NativeImportProbeTest(unittest.TestCase):
                          {'asset-android', 'compression-zlib', 'crypto-openssl'})
         self.assertIn('AAssetManager_open', library['matchedSymbolNames'])
         self.assertGreaterEqual(library['pltStubCount'], 1)
+        self.assertEqual(library['pltSymbolMap']['0x2000'],
+                         {'symbol': 'open', 'category': 'file-io'})
+        self.assertEqual(library['pltSymbolMap']['0x2020']['symbol'], 'inflateInit_')
         self.assertEqual(len(report['rows']), 8)
         for row in report['rows'][:4]:
             self.assertEqual(row['directCallCount'], 1)
