@@ -20,6 +20,7 @@ on:
       - .github/scripts/worldbox_metadata_file_descriptor.py
       - .github/scripts/worldbox_metadata_transform_probe.py
       - .github/scripts/worldbox_metadata_stream_probe.py
+      - .github/scripts/worldbox_metadata_brotli_offsets.py
       - .github/scripts/worldbox_brotli_callers.py
       - .github/scripts/worldbox_native_import_probe.py
       - .github/scripts/worldbox_ghidra_probe.py
@@ -79,6 +80,7 @@ on:
       - tests/test_worldbox_metadata_file_descriptor.py
       - tests/test_worldbox_metadata_transform_probe.py
       - tests/test_worldbox_metadata_stream_probe.py
+      - tests/test_worldbox_metadata_brotli_offsets.py
       - tests/test_worldbox_brotli_callers.py
       - tests/test_worldbox_native_import_probe.py
       - docs/worldbox/scan-metadata.js
@@ -214,6 +216,7 @@ jobs:
           python tests/test_worldbox_native_import_probe.py
           python tests/test_worldbox_metadata_stream_probe.py
           python tests/test_worldbox_brotli_callers.py
+          python tests/test_worldbox_metadata_brotli_offsets.py
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/ghidra.zip" https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.4.3_build/ghidra_11.4.3_PUBLIC_20251203.zip
           echo "b22a8baebb14339f19903c54363ba7e01781930cc43ab430539aabce0d58547a  $RUNNER_TEMP/ghidra.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra"
@@ -645,7 +648,7 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   native-arm64-probe:
-    if: ${{ contains(github.event.head_commit.message, '[worldbox-native]') || contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]') || contains(github.event.head_commit.message, '[worldbox-native-imports]') || contains(github.event.head_commit.message, '[worldbox-metadata-transform]') || contains(github.event.head_commit.message, '[worldbox-metadata-streams]') }}
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-native]') || contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]') || contains(github.event.head_commit.message, '[worldbox-native-imports]') || contains(github.event.head_commit.message, '[worldbox-metadata-transform]') || contains(github.event.head_commit.message, '[worldbox-metadata-streams]') || contains(github.event.head_commit.message, '[worldbox-metadata-brotli-offsets]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -671,9 +674,11 @@ jobs:
           python tests/test_worldbox_metadata_transform_probe.py
           python tests/test_worldbox_native_import_probe.py
           python tests/test_worldbox_metadata_stream_probe.py
+          python tests/test_worldbox_metadata_brotli_offsets.py
       - name: Inspect original ARM64 library without executing it
         env:
-          WORLDBOX_NATIVE_PROBE: ${{ (contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]') || contains(github.event.head_commit.message, '[worldbox-native-imports]') || contains(github.event.head_commit.message, '[worldbox-metadata-transform]') || contains(github.event.head_commit.message, '[worldbox-metadata-streams]')) && '0' || '1' }}
+          WORLDBOX_NATIVE_PROBE: ${{ (contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]') || contains(github.event.head_commit.message, '[worldbox-native-imports]') || contains(github.event.head_commit.message, '[worldbox-metadata-transform]') || contains(github.event.head_commit.message, '[worldbox-metadata-streams]') || contains(github.event.head_commit.message, '[worldbox-metadata-brotli-offsets]')) && '0' || '1' }}
+          WORLDBOX_METADATA_BROTLI_OFFSETS_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-brotli-offsets]') && '1' || '0' }}
           WORLDBOX_METADATA_STREAM_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-streams]') && '1' || '0' }}
           WORLDBOX_METADATA_TRANSFORM_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-transform]') && '1' || '0' }}
           WORLDBOX_NATIVE_IMPORT_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-native-imports]') && '1' || '0' }}
@@ -826,6 +831,16 @@ jobs:
             exit 1
           fi
           grep -E '::(warning|notice) title=WorldBox metadata stream' "$output" || true
+      - name: Surface metadata Brotli offset annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-brotli-offsets]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-native-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox metadata Brotli offsets' "$output"; then
+            echo 'No metadata Brotli offset annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox metadata Brotli offsets' "$output" || true
   runtime-probe:
     if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') || contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]') }}
     runs-on: ubuntu-latest

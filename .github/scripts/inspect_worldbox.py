@@ -235,7 +235,8 @@ try:
                                                       import_report)
             report = import_report(native, unity)
             emit_import_annotations(report)
-            if os.environ.get('WORLDBOX_METADATA_STREAM_PROBE') != '1':
+            if not (os.environ.get('WORLDBOX_METADATA_STREAM_PROBE') == '1' or
+                    os.environ.get('WORLDBOX_METADATA_BROTLI_OFFSETS_PROBE') == '1'):
                 sys.exit(0)
         if os.environ.get('WORLDBOX_METADATA_STREAM_PROBE') == '1':
             if not native or not native.is_file():
@@ -255,6 +256,26 @@ try:
             from worldbox_metadata_stream_probe import (emit_stream_annotations,
                                                         stream_report)
             emit_stream_annotations(stream_report(metadata))
+            if os.environ.get('WORLDBOX_METADATA_BROTLI_OFFSETS_PROBE') != '1':
+                sys.exit(0)
+        if os.environ.get('WORLDBOX_METADATA_BROTLI_OFFSETS_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            if not base_apk or not base_apk.is_file():
+                raise RuntimeError('base.apk not found in the bundle.')
+            if not metadata or not metadata.is_file():
+                raise RuntimeError('global-metadata.dat not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            with base_apk.open('rb') as f:
+                base_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if base_hash != 'ab7c6bab7d2233c26a9e18426aa58dd60fa0ae0ad9be6fa0b2a6673dd8f89c3f':
+                raise RuntimeError('base.apk hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_metadata_brotli_offsets import (emit_offset_annotations,
+                                                           offset_report)
+            emit_offset_annotations(offset_report(metadata))
             sys.exit(0)
         if os.environ.get('WORLDBOX_METADATA_FILE_DESCRIPTOR_PROBE') == '1':
             if not native or not native.is_file():
