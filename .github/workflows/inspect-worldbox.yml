@@ -18,6 +18,8 @@ on:
       - .github/scripts/worldbox_static_literal_probe.py
       - .github/scripts/worldbox_indirect_slot_probe.py
       - .github/scripts/worldbox_metadata_file_descriptor.py
+      - .github/scripts/worldbox_metadata_transform_probe.py
+      - .github/scripts/worldbox_native_import_probe.py
       - .github/scripts/worldbox_ghidra_probe.py
       - .github/scripts/worldbox_ghidra_callees.py
       - .github/scripts/worldbox_metadata_magic_probe.py
@@ -73,6 +75,8 @@ on:
       - tests/test_worldbox_static_literal_probe.py
       - tests/test_worldbox_indirect_slot_probe.py
       - tests/test_worldbox_metadata_file_descriptor.py
+      - tests/test_worldbox_metadata_transform_probe.py
+      - tests/test_worldbox_native_import_probe.py
       - docs/worldbox/scan-metadata.js
       - tests/worldbox-metadata-scanner.test.cjs
       - tests/test_worldbox_triage.py
@@ -202,6 +206,8 @@ jobs:
           python tests/test_worldbox_static_literal_probe.py
           python tests/test_worldbox_indirect_slot_probe.py
           python tests/test_worldbox_metadata_file_descriptor.py
+          python tests/test_worldbox_metadata_transform_probe.py
+          python tests/test_worldbox_native_import_probe.py
           curl -fsSL --retry 3 -o "$RUNNER_TEMP/ghidra.zip" https://github.com/NationalSecurityAgency/ghidra/releases/download/Ghidra_11.4.3_build/ghidra_11.4.3_PUBLIC_20251203.zip
           echo "b22a8baebb14339f19903c54363ba7e01781930cc43ab430539aabce0d58547a  $RUNNER_TEMP/ghidra.zip" | sha256sum -c -
           unzip -q "$RUNNER_TEMP/ghidra.zip" -d "$RUNNER_TEMP/ghidra"
@@ -272,8 +278,9 @@ jobs:
           WORLDBOX_GHIDRA_FILE_ADAPTER_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-file-adapter') && '1' || '0' }}
           WORLDBOX_GHIDRA_FILE_HELPER_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-file-helper') && '1' || '0' }}
           WORLDBOX_GHIDRA_INDIRECT_SLOT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots') && '1' || '0' }}
+          WORLDBOX_GHIDRA_NATIVE_IMPORT_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports') && '1' || '0' }}
           WORLDBOX_GHIDRA_ARMV7_PROBE: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') && '1' || '0' }}
-          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-thunk') || contains(github.event.head_commit.message, 'worldbox-ghidra-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-adjacent') || contains(github.event.head_commit.message, 'worldbox-ghidra-destinations') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-adapter') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots')) && '0' || '1' }}
+          WORLDBOX_GHIDRA_PROBE: ${{ (contains(github.event.head_commit.message, 'worldbox-ghidra-armv7') || contains(github.event.head_commit.message, 'worldbox-ghidra-metadata') || contains(github.event.head_commit.message, 'worldbox-ghidra-io') || contains(github.event.head_commit.message, 'worldbox-ghidra-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-thunk') || contains(github.event.head_commit.message, 'worldbox-ghidra-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-adjacent') || contains(github.event.head_commit.message, 'worldbox-ghidra-destinations') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-adapter') || contains(github.event.head_commit.message, 'worldbox-ghidra-file-helper') || contains(github.event.head_commit.message, 'worldbox-ghidra-indirect-slots') || contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports')) && '0' || '1' }}
           PYTHONUNBUFFERED: '1'
         run: |
           set -o pipefail
@@ -348,6 +355,16 @@ jobs:
             exit 1
           fi
           grep -E '::(warning|notice) title=WorldBox indirect slot' "$output" || true
+      - name: Surface native-import caller Ghidra annotations
+        if: ${{ contains(github.event.head_commit.message, 'worldbox-ghidra-native-imports') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-ghidra-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox native import caller' "$output"; then
+            echo 'No native-import caller Ghidra annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox native import caller' "$output" || true
   upstream-arm64-probe:
     if: ${{ contains(github.event.head_commit.message, '[worldbox-upstream]') }}
     runs-on: ubuntu-latest
@@ -570,7 +587,7 @@ jobs:
           PYTHONUNBUFFERED: '1'
         run: python .github/scripts/inspect_worldbox.py
   native-arm64-probe:
-    if: ${{ contains(github.event.head_commit.message, '[worldbox-native]') || contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]') }}
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-native]') || contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]') || contains(github.event.head_commit.message, '[worldbox-native-imports]') || contains(github.event.head_commit.message, '[worldbox-metadata-transform]') }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -593,9 +610,13 @@ jobs:
           python tests/test_worldbox_static_literal_probe.py
           python tests/test_worldbox_indirect_slot_probe.py
           python tests/test_worldbox_metadata_file_descriptor.py
+          python tests/test_worldbox_metadata_transform_probe.py
+          python tests/test_worldbox_native_import_probe.py
       - name: Inspect original ARM64 library without executing it
         env:
-          WORLDBOX_NATIVE_PROBE: ${{ (contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]')) && '0' || '1' }}
+          WORLDBOX_NATIVE_PROBE: ${{ (contains(github.event.head_commit.message, '[worldbox-metadata-path]') || contains(github.event.head_commit.message, '[worldbox-metadata-slots]') || contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') || contains(github.event.head_commit.message, '[worldbox-branch-destinations]') || contains(github.event.head_commit.message, '[worldbox-file-adapter-callees]') || contains(github.event.head_commit.message, '[worldbox-file-helper-callees]') || contains(github.event.head_commit.message, '[worldbox-indirect-slots]') || contains(github.event.head_commit.message, '[worldbox-metadata-file-descriptor]') || contains(github.event.head_commit.message, '[worldbox-native-imports]') || contains(github.event.head_commit.message, '[worldbox-metadata-transform]')) && '0' || '1' }}
+          WORLDBOX_METADATA_TRANSFORM_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-transform]') && '1' || '0' }}
+          WORLDBOX_NATIVE_IMPORT_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-native-imports]') && '1' || '0' }}
           WORLDBOX_METADATA_PATH_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-path]') && '1' || '0' }}
           WORLDBOX_METADATA_SLOT_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-slots]') && '1' || '0' }}
           WORLDBOX_ADJACENT_THUNK_PROBE: ${{ contains(github.event.head_commit.message, '[worldbox-adjacent-thunks]') && '1' || '0' }}
@@ -695,6 +716,26 @@ jobs:
             exit 1
           fi
           grep -E '::(warning|notice) title=WorldBox metadata file descriptor' "$output" || true
+      - name: Surface metadata-transform annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-metadata-transform]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-native-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox metadata transform' "$output"; then
+            echo 'No metadata-transform annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox metadata transform' "$output" || true
+      - name: Surface native-import classification annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-native-imports]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-native-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox native import' "$output"; then
+            echo 'No native-import classification annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox native import' "$output" || true
   runtime-probe:
     if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') || contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]') }}
     runs-on: ubuntu-latest

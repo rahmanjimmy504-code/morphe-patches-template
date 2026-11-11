@@ -92,6 +92,76 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_GHIDRA_NATIVE_IMPORT_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            if not unity or not unity.is_file():
+                raise RuntimeError('ARM64 libunity.so not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            with unity.open('rb') as f:
+                observed_unity = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed_unity != '8c04ad3b7d482cab925541cfe9839844c87732f7419aaaa71e170ccff916f082':
+                raise RuntimeError('libunity.so hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_native_import_probe import (emit_import_annotations,
+                                                      import_report)
+            native_report = import_report(native, unity)
+            emit_import_annotations(native_report)
+            addresses = native_report['ghidraAddresses']
+            targets = native_report['traceTargets']
+            if not addresses:
+                print('::notice title=WorldBox native import caller Ghidra::' +
+                      annotation(json.dumps({'status': 'no-bounded-import-caller-functions'},
+                                            separators=(',', ':'))))
+                sys.exit(0)
+            tool = os.environ.get('GHIDRA_HEADLESS', '')
+            command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+                       '--headless', tool, '--binary', str(native)]
+            for address in addresses:
+                command += ['--address', address]
+            for target in targets:
+                command += ['--trace-target', target]
+            result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+            if result.returncode:
+                emit_ghidra_failure('native import caller',
+                                    (result.stderr or result.stdout)[-600:])
+                sys.exit(0)
+            ghidra_report = json.loads(result.stdout)
+            emit_ghidra_annotations(ghidra_report, 'native import caller',
+                                    tuple(addresses), tuple(targets), native_report)
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_METADATA_TRANSFORM_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            if not base_apk or not base_apk.is_file():
+                raise RuntimeError('base.apk not found in the bundle.')
+            if not metadata or not metadata.is_file():
+                raise RuntimeError('global-metadata.dat not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            with base_apk.open('rb') as f:
+                base_hash = hashlib.file_digest(f, 'sha256').hexdigest()
+            if base_hash != 'ab7c6bab7d2233c26a9e18426aa58dd60fa0ae0ad9be6fa0b2a6673dd8f89c3f':
+                raise RuntimeError('base.apk hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_metadata_transform_probe import (emit_transform_annotations,
+                                                           transform_report)
+            emit_transform_annotations(transform_report(metadata))
+            if os.environ.get('WORLDBOX_NATIVE_IMPORT_PROBE') != '1':
+                sys.exit(0)
+        if os.environ.get('WORLDBOX_NATIVE_IMPORT_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            if not unity or not unity.is_file():
+                raise RuntimeError('ARM64 libunity.so not found in the bundle.')
+            from worldbox_native_import_probe import (emit_import_annotations,
+                                                      import_report)
+            report = import_report(native, unity)
+            emit_import_annotations(report)
+            sys.exit(0)
         if os.environ.get('WORLDBOX_METADATA_FILE_DESCRIPTOR_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
