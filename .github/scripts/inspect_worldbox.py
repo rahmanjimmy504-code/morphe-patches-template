@@ -92,6 +92,21 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_METADATA_FILE_DESCRIPTOR_PROBE') == '1':
+            if not native or not native.is_file():
+                raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
+            if not base_apk or not base_apk.is_file():
+                raise RuntimeError('base.apk not found in the bundle.')
+            if not metadata or not metadata.is_file():
+                raise RuntimeError('global-metadata.dat not found in the bundle.')
+            with native.open('rb') as f:
+                observed = hashlib.file_digest(f, 'sha256').hexdigest()
+            if observed != '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87':
+                raise RuntimeError('ARM64 library hash does not match the observed 0.51.4 sample; refusing analysis.')
+            from worldbox_metadata_file_descriptor import (emit_metadata_file_annotations,
+                                                           metadata_file_report)
+            emit_metadata_file_annotations(metadata_file_report(base_apk, metadata))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_METADATA_JAVA_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
