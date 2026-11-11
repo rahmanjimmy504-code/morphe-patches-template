@@ -156,6 +156,11 @@ class PremiumEntitlementProbeTest(unittest.TestCase):
             self.assertIn('0x3000', report['unityGhidraAddresses'])
             self.assertEqual(report['metadataScan']['counts']['premium_unlocked']['ascii'], 1)
             self.assertGreaterEqual(report['apkEntryScan']['hitEntryCount'], 2)
+            self.assertGreaterEqual(
+                report['apkEntryScan']['totalCounts']['premium_unlocked']['ascii'], 2)
+            self.assertGreaterEqual(
+                report['apkEntryScan']['exactNeedleHitEntryCount']['premium_unlocked'], 2)
+            self.assertTrue(report['apkEntryScan']['exactNeedleRows'])
             self.assertEqual(report['androidReports']['resources'][0]['status'], 'parsed')
             self.assertEqual(report['androidReports']['dexFiles'][0]['report']['status'], 'parsed')
             self.assertFalse(report['androidReports']['dexFilesTruncated'])
@@ -168,6 +173,10 @@ class PremiumEntitlementProbeTest(unittest.TestCase):
                 probe.emit_premium_annotations(report)
             output = buffer.getvalue()
             self.assertIn('::warning title=WorldBox Premium entitlement summary::', output)
+            self.assertIn('::warning title=WorldBox Premium APK entry overview::', output)
+            self.assertIn('::warning title=WorldBox Premium DEX overview::', output)
+            self.assertIn('::notice title=WorldBox Premium APK entry rows 1/', output)
+            self.assertIn('::notice title=WorldBox Premium DEX details 1/', output)
             self.assertNotIn(UNKNOWN, output)
             for line in output.splitlines():
                 if line.startswith('::'):
@@ -180,6 +189,84 @@ class PremiumEntitlementProbeTest(unittest.TestCase):
                                      watched_stubs={0x2000: 'dlsym'},
                                      resource_parser_factory=FakeResourceParser,
                                      dex_factory=lambda _data: FakeDEX())
+
+    def test_annotations_stay_bounded_at_maximum_report_shape(self):
+        counts = {label: {'ascii': 0, 'utf16le': 0} for label in probe.NEEDLES}
+        counts['premium_unlocked']['ascii'] = 3
+        counts['get_it_now']['ascii'] = 2
+        rows = [{'apk': 'base.apk', 'entry': f'assets/bin/Data/{index:032x}',
+                 'counts': counts, 'examples': [
+                     {'offset': hex(index), 'needle': 'premium_unlocked',
+                      'encoding': 'ascii', 'apk': 'base.apk',
+                      'entry': f'assets/bin/Data/{index:032x}'}],
+                 'examplesTruncated': False, 'bytesScanned': 4096,
+                 'truncated': False, 'exactNeedleCount': 5}
+                for index in range(24)]
+        exact_rows = [{'apk': 'base.apk',
+                       'entry': f'assets/bin/Data/{index:032x}',
+                       'counts': {label: counts[label]
+                                  for label in probe.EXACT_NEEDLES}}
+                      for index in range(12)]
+        dex = {'apk': 'base.apk', 'dex': 'classes.dex',
+               'bytes': 1000, 'sha256': '0' * 64,
+               'report': {'status': 'parsed',
+                          'raw': {'counts': counts, 'examplesTruncated': False},
+                          'stringCount': 100, 'stringTableMatchCount': 1,
+                          'stringMatches': [{'stringIndex': 1,
+                                             'needles': ['premium_unlocked'],
+                                             'valueSha256': '0' * 64}],
+                          'stringMatchesTruncated': False,
+                          'methodMatchCount': 1,
+                          'methods': [{'needles': ['premium_unlocked'],
+                                       'resourceIds': [],
+                                       'classSha256': '0' * 64,
+                                       'methodSha256': '0' * 64,
+                                       'descriptorSha256': '0' * 64}],
+                          'methodsTruncated': False,
+                          'instructionsScanned': 1000,
+                          'instructionsTruncated': False}}
+        native = {'sha256': '0' * 64, 'unwindStatus': 'parsed',
+                  'literals': {'results': {}, 'referenceAddresses': [],
+                               'referenceAddressesTruncated': False},
+                  'nameReferences': {'count': 0, 'sites': []},
+                  'watchedCalls': {'rows': []}, 'ghidraAddresses': []}
+        report = {
+            'kind': probe.KIND, 'mode': 'android', 'hashGates': {},
+            'needles': probe.NEEDLES, 'encodings': list(probe.ENCODINGS),
+            'ghidraLibrary': 'libil2cpp.so', 'ghidraAddresses': [],
+            'ghidraAddressesTruncated': False, 'unityGhidraAddresses': [],
+            'traceTargets': [], 'limitations': 'bounded',
+            'nativeReports': {'libil2cpp.so': native, 'libunity.so': native},
+            'metadataScan': {'counts': counts, 'examples': [],
+                             'examplesTruncated': False,
+                             'bytesScanned': 1, 'truncated': False},
+            'apkEntryScan': {'status': 'complete',
+                             'entriesScanned': 24, 'bytesScanned': 98304,
+                             'truncated': False, 'totalCounts': counts,
+                             'exactNeedleHitEntryCount': {
+                                 'premium_unlocked': 12, 'get_it_now': 12},
+                             'exactNeedleRows': exact_rows,
+                             'exactNeedleRowsTruncated': True,
+                             'hitEntryCount': 24, 'rows': rows,
+                             'rowsTruncated': True},
+            'androidReports': {'resourceIds': [],
+                               'resourceIdsTruncated': False,
+                               'resourceTablesSeen': 1,
+                               'resourceTablesTruncated': False,
+                               'dexFilesSeen': 6,
+                               'dexFilesTruncated': False,
+                               'resources': [],
+                               'dexFiles': [dict(dex, dex=f'classes{index}.dex')
+                                            for index in range(6)]}}
+        buffer = io.StringIO()
+        with contextlib.redirect_stdout(buffer):
+            probe.emit_premium_annotations(report)
+        output = buffer.getvalue()
+        self.assertIn('WorldBox Premium APK entry rows 6/6', output)
+        self.assertIn('WorldBox Premium DEX details 2/2', output)
+        for line in output.splitlines():
+            if line.startswith('::'):
+                self.assertLessEqual(len(line), 4096)
 
     def test_native_only_report_skips_android_analysis(self):
         with tempfile.TemporaryDirectory() as directory:

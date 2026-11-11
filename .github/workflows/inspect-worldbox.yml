@@ -892,11 +892,11 @@ jobs:
         run: |
           output="$RUNNER_TEMP/worldbox-native-output.txt"
           test -s "$output"
-          if ! grep -qE '::(warning|notice) title=WorldBox Premium (entitlement|native model|metadata scan)' "$output"; then
+          if ! grep -qE '::(warning|notice) title=WorldBox Premium (entitlement|native model|metadata|APK|resource|DEX)' "$output"; then
             echo 'No Premium native entitlement annotations were produced' >&2
             exit 1
           fi
-          grep -E '::(warning|notice) title=WorldBox Premium (entitlement|native model|metadata scan)' "$output" || true
+          grep -E '::(warning|notice) title=WorldBox Premium (entitlement|native model|metadata|APK|resource|DEX)' "$output" || true
   runtime-probe:
     if: ${{ vars.WORLDBOX_RUNTIME_PROBE == '1' || contains(github.event.head_commit.message, '[worldbox-runtime]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-arm64]') || contains(github.event.head_commit.message, '[worldbox-memory-extractor-running]') || contains(github.event.head_commit.message, '[worldbox-proc-only]') || contains(github.event.head_commit.message, '[worldbox-proc-all]') }}
     runs-on: ubuntu-latest
@@ -1015,8 +1015,8 @@ jobs:
         run: |
           output="$RUNNER_TEMP/worldbox-rea-output.txt"
           test -s "$output"
-          if ! grep -qE '::(warning|notice) title=WorldBox Premium (entitlement|APK|resource|DEX)' "$output"; then
+          if ! grep -qE '::(warning|notice) title=WorldBox Premium (entitlement|native model|metadata|APK|resource|DEX)' "$output"; then
             echo 'No Premium entitlement Android annotations were produced' >&2
             exit 1
           fi
-          grep -E '::(warning|notice) title=WorldBox Premium (entitlement|APK|resource|DEX)' "$output" || true
+          grep -E '::(warning|notice) title=WorldBox Premium (entitlement|native model|metadata|APK|resource|DEX)' "$output" || true

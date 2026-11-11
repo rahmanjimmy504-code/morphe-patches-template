@@ -38,6 +38,7 @@ NEEDLES = {
     'get_it_now_lower': 'get it now',
     'get_it_now_snake': 'get_it_now',
 }
+EXACT_NEEDLES = ('premium_unlocked', 'get_it_now')
 ENCODINGS = ('ascii', 'utf16le')
 CHUNK_SIZE = 1024 * 1024
 MAX_ENTRY_BYTES = 256 * 1024 * 1024
@@ -47,6 +48,9 @@ MAX_DEX_BYTES = 64 * 1024 * 1024
 MAX_DEX_INSTRUCTIONS = 2_000_000
 MAX_EXAMPLES = 12
 MAX_ENTRY_ROWS = 24
+MAX_EXACT_NEEDLE_ROWS = 12
+MAX_ANNOTATION_ROWS = 4
+MAX_DEX_ANNOTATION_ROWS = 3
 MAX_RESOURCE_TABLES = 8
 MAX_DEX_FILES = 12
 MAX_RESOURCE_IDS = 64
@@ -135,11 +139,13 @@ def scan_metadata(path, needles=NEEDLES):
 
 
 def scan_apk_entries(paths, needles=NEEDLES):
-    rows = []
+    hit_rows = []
+    total_counts = {label: {encoding: 0 for encoding in ENCODINGS}
+                    for label in needles}
+    exact_hits = {label: 0 for label in EXACT_NEEDLES if label in needles}
     scanned = 0
     entries_scanned = 0
     truncated = False
-    hit_rows = 0
     for apk in paths:
         apk = Path(apk)
         with zipfile.ZipFile(apk) as archive:
@@ -159,22 +165,47 @@ def scan_apk_entries(paths, needles=NEEDLES):
                 scanned += result['bytesScanned']
                 if result['truncated']:
                     truncated = True
-                if any(count for per_encoding in result['counts'].values()
-                       for count in per_encoding.values()):
-                    hit_rows += 1
-                    if len(rows) < MAX_ENTRY_ROWS:
-                        rows.append({'apk': apk.name, 'entry': name,
-                                     'counts': result['counts'],
-                                     'examples': result['examples'],
-                                     'examplesTruncated': result['examplesTruncated'],
-                                     'bytesScanned': result['bytesScanned'],
-                                     'truncated': result['truncated']})
+                if not any(count for per_encoding in result['counts'].values()
+                           for count in per_encoding.values()):
+                    continue
+                for label, per_encoding in result['counts'].items():
+                    for encoding, count in per_encoding.items():
+                        total_counts[label][encoding] += count
+                exact_counts = {label: sum(result['counts'][label].values())
+                                for label in exact_hits}
+                for label, count in exact_counts.items():
+                    if count:
+                        exact_hits[label] += 1
+                exact_sum = sum(exact_counts.values())
+                row = {'apk': apk.name, 'entry': name,
+                       'counts': result['counts'],
+                       'examples': result['examples'][:2],
+                       'examplesTruncated': result['examplesTruncated'] or
+                                            len(result['examples']) > 2,
+                       'bytesScanned': result['bytesScanned'],
+                       'truncated': result['truncated'],
+                       'exactNeedleCount': exact_sum}
+                hit_rows.append(row)
             if truncated:
                 break
+    hit_rows.sort(key=lambda row: (-row['exactNeedleCount'],
+                                   -sum(count for per in row['counts'].values()
+                                        for count in per.values()),
+                                   row['apk'], row['entry']))
+    exact_rows = [row for row in hit_rows if row['exactNeedleCount']]
     return {'kind': 'apk-entry-scan', 'entriesScanned': entries_scanned,
             'bytesScanned': scanned, 'truncated': truncated,
-            'hitEntryCount': hit_rows, 'rows': rows,
-            'rowsTruncated': hit_rows > len(rows)}
+            'totalCounts': total_counts,
+            'exactNeedleHitEntryCount': exact_hits,
+            'exactNeedleRows': [
+                {'apk': row['apk'], 'entry': row['entry'],
+                 'counts': {label: row['counts'][label] for label in exact_hits}}
+                for row in exact_rows[:MAX_EXACT_NEEDLE_ROWS]],
+            'exactNeedleRowsTruncated':
+                len(exact_rows) > MAX_EXACT_NEEDLE_ROWS,
+            'hitEntryCount': len(hit_rows),
+            'rows': hit_rows[:MAX_ENTRY_ROWS],
+            'rowsTruncated': len(hit_rows) > MAX_ENTRY_ROWS}
 
 
 def default_arsc_parser(data):
@@ -470,6 +501,47 @@ def premium_report(native, unity, metadata, apk_paths=(), needles=NEEDLES,
             'traceTargets': trace_targets, 'limitations': LIMITATIONS}
 
 
+def nonzero_counts(counts):
+    result = {}
+    for label, per_encoding in counts.items():
+        kept = {encoding: count for encoding, count in per_encoding.items() if count}
+        if kept:
+            result[label] = kept
+    return result
+
+
+def emit_bounded(level, title, payload):
+    """Emit a compact workflow annotation that stays below GitHub's 4096 cap."""
+    message = annotation(json.dumps(payload, separators=(',', ':')))
+    if len(message) > 3800:
+        raise ValueError('Premium annotation exceeds the safety bound: ' + title)
+    print('::' + level + ' title=' + title + '::' + message)
+
+
+def compact_dex(dex, detailed=False):
+    result = {'apk': dex['apk'], 'dex': dex['dex'],
+              'bytes': dex['bytes'], 'sha256': dex['sha256'],
+              'status': dex['report']['status']}
+    raw = dex['report'].get('raw')
+    if raw:
+        result['rawCounts'] = nonzero_counts(raw['counts'])
+        result['rawExamplesTruncated'] = raw['examplesTruncated']
+    if dex['report']['status'] != 'parsed':
+        if dex['report'].get('reason'):
+            result['reason'] = dex['report']['reason']
+        return result
+    report = dex['report']
+    result.update({key: report[key] for key in
+                   ('stringCount', 'stringTableMatchCount',
+                    'stringMatchesTruncated', 'methodMatchCount',
+                    'methodsTruncated', 'instructionsScanned',
+                    'instructionsTruncated')})
+    if detailed:
+        result['stringMatches'] = report['stringMatches'][:3]
+        result['methods'] = report['methods'][:3]
+    return result
+
+
 def emit_premium_annotations(report):
     if report.get('kind') != KIND:
         raise RuntimeError('Unexpected WorldBox Premium entitlement report.')
@@ -480,8 +552,7 @@ def emit_premium_annotations(report):
                 'ghidraLibrary', 'ghidraAddresses',
                 'ghidraAddressesTruncated', 'unityGhidraAddresses',
                 'traceTargets', 'limitations')}
-    print('::warning title=WorldBox Premium entitlement summary::' +
-          annotation(json.dumps(summary, separators=(',', ':'))))
+    emit_bounded('warning', 'WorldBox Premium entitlement summary', summary)
     for name, row in report['nativeReports'].items():
         payload = {'library': name, 'sha256': row['sha256'],
                    'unwindStatus': row['unwindStatus'],
@@ -492,43 +563,57 @@ def emit_premium_annotations(report):
                    'nameReferenceSites': row['nameReferences']['sites'],
                    'watchedCalls': row['watchedCalls']['rows'],
                    'ghidraAddresses': row['ghidraAddresses']}
-        print('::warning title=WorldBox Premium native model ' + name + '::' +
-              annotation(json.dumps(payload, separators=(',', ':'))))
-    print('::warning title=WorldBox Premium metadata scan::' +
-          annotation(json.dumps(report['metadataScan'], separators=(',', ':'))))
-    if report['apkEntryScan'].get('status') != 'not-requested':
-        print('::warning title=WorldBox Premium APK entry scan::' +
-              annotation(json.dumps(report['apkEntryScan'], separators=(',', ':'))))
-        print('::warning title=WorldBox Premium resource matches::' +
-              annotation(json.dumps({
-                  'resourceIds': report['androidReports']['resourceIds'],
-                  'resourceIdsTruncated': report['androidReports']['resourceIdsTruncated'],
-                  'resourceTablesSeen': report['androidReports'].get('resourceTablesSeen'),
-                  'resourceTablesTruncated': report['androidReports'].get('resourceTablesTruncated'),
-                  'dexFilesSeen': report['androidReports'].get('dexFilesSeen'),
-                  'dexFilesTruncated': report['androidReports'].get('dexFilesTruncated'),
-                  'tables': [{key: row.get(key) for key in
-                              ('apk', 'entry', 'bytes', 'sha256', 'status',
-                               'reason', 'counts', 'examples',
-                               'examplesTruncated')}
-                             for row in report['androidReports']['resources']]},
-                  separators=(',', ':'))))
-        for index, dex in enumerate(report['androidReports']['dexFiles'], 1):
-            payload = {'apk': dex['apk'], 'dex': dex['dex'],
-                       'bytes': dex['bytes'], 'sha256': dex['sha256'],
-                       'status': dex['report']['status'],
-                       'rawCounts': (dex['report']['raw']['counts']
-                                     if dex['report'].get('raw') else None)}
-            print('::warning title=WorldBox Premium DEX scan ' + str(index) + '::' +
-                  annotation(json.dumps(payload, separators=(',', ':'))))
-            if dex['report']['status'] == 'parsed':
-                parsed = {key: dex['report'][key] for key in
-                          ('stringCount', 'stringTableMatchCount', 'stringMatches',
-                           'stringMatchesTruncated', 'methodMatchCount',
-                           'methods', 'methodsTruncated',
-                           'instructionsScanned', 'instructionsTruncated')}
-                print('::warning title=WorldBox Premium DEX semantics ' + str(index) + '::' +
-                      annotation(json.dumps(parsed, separators=(',', ':'))))
+        emit_bounded('warning', 'WorldBox Premium native model ' + name, payload)
+    emit_bounded('warning', 'WorldBox Premium metadata scan',
+                 report['metadataScan'])
+    if report['apkEntryScan'].get('status') == 'not-requested':
+        return
+    apk_scan = report['apkEntryScan']
+    overview = {key: apk_scan[key] for key in
+                ('entriesScanned', 'bytesScanned', 'truncated',
+                 'totalCounts', 'exactNeedleHitEntryCount',
+                 'exactNeedleRows', 'exactNeedleRowsTruncated',
+                 'hitEntryCount', 'rowsTruncated')}
+    emit_bounded('warning', 'WorldBox Premium APK entry overview', overview)
+    rows = apk_scan['rows']
+    chunks = [rows[start:start + MAX_ANNOTATION_ROWS]
+              for start in range(0, len(rows), MAX_ANNOTATION_ROWS)] or [[]]
+    for number, part in enumerate(chunks, 1):
+        payload = {'chunk': [number, len(chunks)], 'rows': [
+            {'apk': row['apk'], 'entry': row['entry'],
+             'counts': nonzero_counts(row['counts']),
+             'examples': row['examples'],
+             'examplesTruncated': row['examplesTruncated'],
+             'bytesScanned': row['bytesScanned'],
+             'exactNeedleCount': row['exactNeedleCount']}
+            for row in part]}
+        emit_bounded('notice', 'WorldBox Premium APK entry rows ' +
+                     str(number) + '/' + str(len(chunks)), payload)
+    android = report['androidReports']
+    emit_bounded('warning', 'WorldBox Premium resource matches', {
+        'resourceIds': android['resourceIds'],
+        'resourceIdsTruncated': android['resourceIdsTruncated'],
+        'resourceTablesSeen': android.get('resourceTablesSeen'),
+        'resourceTablesTruncated': android.get('resourceTablesTruncated'),
+        'dexFilesSeen': android.get('dexFilesSeen'),
+        'dexFilesTruncated': android.get('dexFilesTruncated'),
+        'tables': [{key: row.get(key) for key in
+                    ('apk', 'entry', 'bytes', 'sha256', 'status',
+                     'reason', 'counts', 'examples',
+                     'examplesTruncated')}
+                   for row in android['resources']]})
+    dex_files = android['dexFiles']
+    emit_bounded('warning', 'WorldBox Premium DEX overview', {
+        'dexFilesSeen': android.get('dexFilesSeen'),
+        'dexFilesTruncated': android.get('dexFilesTruncated'),
+        'files': [compact_dex(dex) for dex in dex_files]})
+    chunks = [dex_files[start:start + MAX_DEX_ANNOTATION_ROWS]
+              for start in range(0, len(dex_files), MAX_DEX_ANNOTATION_ROWS)] or [[]]
+    for number, part in enumerate(chunks, 1):
+        payload = {'chunk': [number, len(chunks)],
+                   'files': [compact_dex(dex, detailed=True) for dex in part]}
+        emit_bounded('notice', 'WorldBox Premium DEX details ' +
+                     str(number) + '/' + str(len(chunks)), payload)
 
 
 def main():
