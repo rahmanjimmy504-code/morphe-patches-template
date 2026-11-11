@@ -21,6 +21,10 @@ from worldbox_metadata_string_counts import NEEDLES as METADATA_NEEDLES, candida
 from worldbox_bounded_reference_report import annotation, emit_ghidra_annotations, emit_ghidra_failure, emit_reference_annotations
 
 PAGE = 'https://www.apkmirror.com/apk/mako-mako/worldbox-sandbox-god-simulator/worldbox-sandbox-god-sim-0-51-4-release/worldbox-sandbox-god-sim-0-51-4-android-apk-download/'
+EXPECTED_ARM64 = '1d644b98fec97a35630495c695515861acd2c18209beaae6471a650db65def87'
+EXPECTED_UNITY = '8c04ad3b7d482cab925541cfe9839844c87732f7419aaaa71e170ccff916f082'
+EXPECTED_BASE_APK = 'ab7c6bab7d2233c26a9e18426aa58dd60fa0ae0ad9be6fa0b2a6673dd8f89c3f'
+EXPECTED_METADATA = '0c843e9807d351f193580e178f4826845534cdcd86563e634ca8a48ad3b7bc88'
 session = requests.Session()
 session.headers.update({'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 Chrome/131.0.0.0 Safari/537.36'})
 
@@ -28,6 +32,35 @@ def fetch(url, referer=None):
     response = session.get(url, headers={'Referer': referer} if referer else {}, timeout=60)
     response.raise_for_status()
     return response
+
+
+def verify_file(path, expected, label):
+    if not path or not Path(path).is_file():
+        raise RuntimeError(label + ' not found in the bundle.')
+    with Path(path).open('rb') as handle:
+        observed = hashlib.file_digest(handle, 'sha256').hexdigest()
+    if observed != expected:
+        raise RuntimeError(label + ' hash does not match the observed 0.51.4 sample; refusing analysis.')
+    return observed
+
+
+def run_bounded_ghidra(native, addresses, targets, label):
+    """Decompile unwind-bounded addresses; emit a safe notice on tool failure."""
+    tool = os.environ.get('GHIDRA_HEADLESS', '')
+    command = [sys.executable, '.github/scripts/worldbox_ghidra_callees.py',
+               '--headless', tool, '--binary', str(native)]
+    for address in addresses:
+        command += ['--address', address]
+    for target in targets:
+        command += ['--trace-target', target]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=1200)
+    if result.returncode:
+        emit_ghidra_failure(label, (result.stderr or result.stdout)[-600:])
+        return None
+    ghidra_report = json.loads(result.stdout)
+    emit_ghidra_annotations(ghidra_report, label, tuple(addresses),
+                            tuple(targets))
+    return ghidra_report
 
 try:
     page = fetch(PAGE)
@@ -92,6 +125,65 @@ try:
                             metadata = Path(td) / 'global-metadata.dat'
                             with apk.open(entry) as src, metadata.open('wb') as dst:
                                 shutil.copyfileobj(src, dst)
+        if os.environ.get('WORLDBOX_GHIDRA_BROTLI_EXPORT_CONSUMERS_PROBE') == '1':
+            verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
+            from worldbox_brotli_export_consumers import (export_consumers_report,
+                                                          emit_export_consumer_annotations)
+            native_report = export_consumers_report(native)
+            emit_export_consumer_annotations(native_report)
+            addresses = native_report['ghidraAddresses']
+            targets = native_report['traceTargets']
+            if not addresses:
+                print('::notice title=WorldBox Brotli export consumer Ghidra::' +
+                      annotation(json.dumps({'status': 'no-bounded-consumer-functions'},
+                                            separators=(',', ':'))))
+            else:
+                run_bounded_ghidra(native, addresses, targets,
+                                   'Brotli export consumer')
+            if os.environ.get('WORLDBOX_PREMIUM_GHIDRA_PROBE') != '1':
+                sys.exit(0)
+        if os.environ.get('WORLDBOX_PREMIUM_GHIDRA_PROBE') == '1':
+            verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
+            verify_file(unity, EXPECTED_UNITY, 'ARM64 libunity.so')
+            verify_file(metadata, EXPECTED_METADATA, 'global-metadata.dat')
+            from worldbox_premium_entitlement_probe import (premium_report,
+                                                            emit_premium_annotations)
+            report = premium_report(native, unity, metadata)
+            emit_premium_annotations(report)
+            addresses = report['ghidraAddresses']
+            targets = report['traceTargets']
+            if not addresses:
+                print('::notice title=WorldBox Premium entitlement Ghidra::' +
+                      annotation(json.dumps({'status': 'no-bounded-native-needle-functions'},
+                                            separators=(',', ':'))))
+                sys.exit(0)
+            run_bounded_ghidra(native, addresses, targets, 'Premium entitlement')
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_BROTLI_EXPORT_CONSUMER_PROBE') == '1':
+            verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
+            from worldbox_brotli_export_consumers import (export_consumers_report,
+                                                          emit_export_consumer_annotations)
+            emit_export_consumer_annotations(export_consumers_report(native))
+            if os.environ.get('WORLDBOX_PREMIUM_NATIVE_PROBE') != '1':
+                sys.exit(0)
+        if os.environ.get('WORLDBOX_PREMIUM_ANDROID_PROBE') == '1':
+            verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
+            verify_file(unity, EXPECTED_UNITY, 'ARM64 libunity.so')
+            verify_file(base_apk, EXPECTED_BASE_APK, 'base.apk')
+            verify_file(metadata, EXPECTED_METADATA, 'global-metadata.dat')
+            from worldbox_premium_entitlement_probe import (premium_report,
+                                                            emit_premium_annotations)
+            emit_premium_annotations(premium_report(native, unity, metadata,
+                                                    apk_paths))
+            sys.exit(0)
+        if os.environ.get('WORLDBOX_PREMIUM_NATIVE_PROBE') == '1':
+            verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
+            verify_file(unity, EXPECTED_UNITY, 'ARM64 libunity.so')
+            verify_file(metadata, EXPECTED_METADATA, 'global-metadata.dat')
+            from worldbox_premium_entitlement_probe import (premium_report,
+                                                            emit_premium_annotations)
+            emit_premium_annotations(premium_report(native, unity, metadata))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_GHIDRA_BROTLI_CALLERS_PROBE') == '1':
             if not native or not native.is_file():
                 raise RuntimeError('ARM64 libil2cpp.so not found in the bundle.')
