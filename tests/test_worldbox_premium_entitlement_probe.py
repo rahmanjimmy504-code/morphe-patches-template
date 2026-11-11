@@ -190,6 +190,20 @@ class PremiumEntitlementProbeTest(unittest.TestCase):
                                      resource_parser_factory=FakeResourceParser,
                                      dex_factory=lambda _data: FakeDEX())
 
+    def test_apk_scan_prioritizes_the_rare_get_it_now_label(self):
+        with tempfile.TemporaryDirectory() as directory:
+            apk = Path(directory) / 'base.apk'
+            with zipfile.ZipFile(apk, 'w') as archive:
+                archive.writestr('premium.bin', b'premium_unlocked ' * 4)
+                archive.writestr('get_it_now.bin', b'Get It Now\0')
+                archive.writestr('ordinary.bin', b'no predefined needle')
+            report = probe.scan_apk_entries([apk])
+            self.assertEqual(report['totalCounts']['get_it_now']['ascii'], 1)
+            self.assertEqual(report['exactNeedleHitEntryCount']['get_it_now'], 1)
+            self.assertEqual(report['exactNeedleRows'][0]['entry'], 'get_it_now.bin')
+            self.assertEqual(report['rows'][0]['entry'], 'get_it_now.bin')
+            self.assertEqual(report['rows'][0]['getItNowCount'], 1)
+
     def test_annotations_stay_bounded_at_maximum_report_shape(self):
         counts = {label: {'ascii': 0, 'utf16le': 0} for label in probe.NEEDLES}
         counts['premium_unlocked']['ascii'] = 3

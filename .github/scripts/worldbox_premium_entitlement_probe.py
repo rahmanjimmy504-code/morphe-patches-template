@@ -177,6 +177,8 @@ def scan_apk_entries(paths, needles=NEEDLES):
                     if count:
                         exact_hits[label] += 1
                 exact_sum = sum(exact_counts.values())
+                get_it_now_count = exact_counts.get('get_it_now', 0)
+                premium_unlocked_count = exact_counts.get('premium_unlocked', 0)
                 row = {'apk': apk.name, 'entry': name,
                        'counts': result['counts'],
                        'examples': result['examples'][:2],
@@ -184,11 +186,17 @@ def scan_apk_entries(paths, needles=NEEDLES):
                                             len(result['examples']) > 2,
                        'bytesScanned': result['bytesScanned'],
                        'truncated': result['truncated'],
-                       'exactNeedleCount': exact_sum}
+                       'exactNeedleCount': exact_sum,
+                       'getItNowCount': get_it_now_count,
+                       'premiumUnlockedCount': premium_unlocked_count}
                 hit_rows.append(row)
             if truncated:
                 break
-    hit_rows.sort(key=lambda row: (-row['exactNeedleCount'],
+    # The rare "Get It Now" label is more diagnostic than numerous repeated
+    # premium_unlocked hits, so keep its entries ahead of broader case variants.
+    hit_rows.sort(key=lambda row: (-row['getItNowCount'],
+                                   -row['premiumUnlockedCount'],
+                                   -row['exactNeedleCount'],
                                    -sum(count for per in row['counts'].values()
                                         for count in per.values()),
                                    row['apk'], row['entry']))
@@ -199,6 +207,8 @@ def scan_apk_entries(paths, needles=NEEDLES):
             'exactNeedleHitEntryCount': exact_hits,
             'exactNeedleRows': [
                 {'apk': row['apk'], 'entry': row['entry'],
+                 'getItNowCount': row['getItNowCount'],
+                 'premiumUnlockedCount': row['premiumUnlockedCount'],
                  'counts': {label: row['counts'][label] for label in exact_hits}}
                 for row in exact_rows[:MAX_EXACT_NEEDLE_ROWS]],
             'exactNeedleRowsTruncated':
@@ -585,7 +595,9 @@ def emit_premium_annotations(report):
              'examples': row['examples'],
              'examplesTruncated': row['examplesTruncated'],
              'bytesScanned': row['bytesScanned'],
-             'exactNeedleCount': row['exactNeedleCount']}
+             'exactNeedleCount': row['exactNeedleCount'],
+             'getItNowCount': row.get('getItNowCount', 0),
+             'premiumUnlockedCount': row.get('premiumUnlockedCount', 0)}
             for row in part]}
         emit_bounded('notice', 'WorldBox Premium APK entry rows ' +
                      str(number) + '/' + str(len(chunks)), payload)
