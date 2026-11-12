@@ -105,7 +105,7 @@ class PremiumUnityAssetsTest(unittest.TestCase):
         with contextlib.redirect_stdout(buffer):
             probe.emit_annotations(report)
         output = buffer.getvalue()
-        self.assertIn('::warning title=WorldBox Premium Unity asset summary::', output)
+        self.assertIn('::warning title=WorldBox Premium Unity asset summary 1/1::', output)
         self.assertIn('::notice title=WorldBox Premium Unity asset rows 1/1::', output)
         self.assertNotIn(UNKNOWN, output)
         for line in output.splitlines():

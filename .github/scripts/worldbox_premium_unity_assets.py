@@ -9,6 +9,7 @@ strings, custom field values or executable code are emitted.
 from __future__ import annotations
 
 import argparse
+import copy
 import hashlib
 import json
 import re
@@ -126,11 +127,88 @@ def sanitize_value(value):
     return None
 
 
+def compact_context(context):
+    """Keep bounded hierarchy/component labels; hash every unknown string."""
+    if not isinstance(context, dict):
+        return {'available': False}
+    hierarchy = context.get('hierarchy', [])
+    component_types = context.get('componentTypes', [])
+    scripts = context.get('componentScripts', [])
+    buttons = context.get('buttonPPtrCandidates', [])
+    method_tokens = []
+    for button in buttons[:8]:
+        for match in button.get('localPPtrMatches', [])[:8]:
+            for token in match.get('methodTokens', [])[:8]:
+                method_tokens.append(string_descriptor(token.get('candidateMethod')))
+    return {
+        'available': context.get('available'),
+        'name': string_descriptor(context.get('name')),
+        'activeSelf': context.get('activeSelf'),
+        'activeInHierarchy': context.get('activeInHierarchy'),
+        'hierarchy': [string_descriptor(item) for item in hierarchy[:8]],
+        'hierarchyTruncated': bool(context.get('hierarchyTruncated') or
+                                   len(hierarchy) > 8),
+        'componentTypes': [string_descriptor(item)
+                           for item in component_types[:16]],
+        'componentTypesTruncated': bool(context.get('componentsTruncated') or
+                                        len(component_types) > 16),
+        'scriptClasses': [string_descriptor(row.get('script', {}).get('className'))
+                          for row in scripts[:16]],
+        'canvasGroups': context.get('canvasGroups', [])[:8],
+        'methodTokens': method_tokens[:16],
+        'methodTokensTruncated': len(method_tokens) > 16,
+    }
+
+
+def bounded_payload(payload, max_chars=3800):
+    """Shrink annotation payloads deterministically instead of failing CI."""
+    candidate = copy.deepcopy(payload)
+    def message():
+        return annotation(json.dumps(candidate, separators=(',', ':')))
+    if len(message()) <= max_chars:
+        return message()
+    if 'gameObjectContexts' in candidate:
+        candidate.pop('gameObjectContexts')
+        candidate['contextsOmitted'] = True
+    if len(message()) <= max_chars:
+        return message()
+    details = candidate.get('objectDetails', [])
+    original_count = len(details)
+    for count in range(original_count, -1, -1):
+        candidate['objectDetails'] = details[:count]
+        candidate['objectDetailsOmitted'] = count < original_count
+        if len(message()) <= max_chars:
+            return message()
+    for row in candidate.get('objectDetails', []):
+        for key in ('payloadTokens', 'localPPtrCandidates', 'storedSchema',
+                    'scriptDescriptor'):
+            row.pop(key, None)
+        row['nestedDetailsOmitted'] = True
+    if len(message()) <= max_chars:
+        return message()
+    minimal = {'label': candidate.get('label'),
+               'entry': candidate.get('entry'),
+               'status': candidate.get('status'),
+               'reason': candidate.get('reason'),
+               'chunk': candidate.get('chunk'),
+               'payloadOmitted': True}
+    return annotation(json.dumps(minimal, separators=(',', ':')))
+
+
 def emit_bounded(level, title, payload):
-    message = annotation(json.dumps(payload, separators=(',', ':')))
-    if len(message) > 3800:
-        raise ValueError('Premium Unity annotation exceeds the safety bound: ' + title)
-    print('::' + level + ' title=' + title + '::' + message)
+    print('::' + level + ' title=' + title + '::' + bounded_payload(payload))
+
+
+def emit_chunked(level, title, payload, list_key, chunk_size=4):
+    entries = payload.get(list_key, [])
+    chunks = [entries[start:start + chunk_size]
+              for start in range(0, len(entries), chunk_size)] or [[]]
+    for number, part in enumerate(chunks, 1):
+        item = dict(payload)
+        item[list_key] = part
+        item['chunk'] = [number, len(chunks)]
+        emit_bounded(level, title + ' ' + str(number) + '/' + str(len(chunks)),
+                     item)
 
 
 def parse_asset(data):
@@ -320,7 +398,7 @@ def inspect_asset_bytes(data, owner, asset=None, script_asset=None,
                 asset, path_id, owner, script_asset, basename_unique,
                 script_cache or {})
             contexts.append({'gameObjectPathId': path_id,
-                             'context': sanitize_value(context)})
+                             'context': compact_context(context)})
         except Exception as exc:
             contexts.append({'gameObjectPathId': path_id,
                              'context': {'available': False,
@@ -405,7 +483,9 @@ def emit_annotations(report):
     summary = {key: report[key] for key in
                ('baseApkSha256', 'unityPyVersion', 'scriptIdentityValidated',
                 'scriptCandidateCount', 'scriptParseErrorCount',
-                'basenameUnique', 'selectedEntries', 'limitations')}
+                'basenameUnique')}
+    summary['selectedEntryCount'] = len(report['selectedEntries'])
+    summary['limitationsSha256'] = hash_text(LIMITATIONS)
     summary['files'] = [{
         'label': row.get('label'), 'entry': row.get('entry'),
         'status': row.get('status'), 'reason': row.get('reason'),
@@ -417,11 +497,12 @@ def emit_annotations(report):
         'contextCount': len(row.get('gameObjectContexts', [])),
         'parseErrorCount': row.get('parseErrorCount')}
         for row in report['files']]
-    emit_bounded('warning', 'WorldBox Premium Unity asset summary', summary)
+    emit_chunked('warning', 'WorldBox Premium Unity asset summary',
+                 summary, 'files', chunk_size=4)
     for index, row in enumerate(report['files'], 1):
         payload = {'chunk': [index, len(report['files'])],
                    'label': row.get('label'), 'entry': row.get('entry'),
-                   'status': row.get('status'),
+                   'sha256': row.get('sha256'), 'status': row.get('status'),
                    'objectDetails': row.get('objectDetails', []),
                    'gameObjectContexts': row.get('gameObjectContexts', []),
                    'detailsTruncated': row.get('objectDetailsTruncated'),

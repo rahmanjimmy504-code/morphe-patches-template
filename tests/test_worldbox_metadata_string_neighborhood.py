@@ -47,6 +47,9 @@ class MetadataStringNeighborhoodTest(unittest.TestCase):
             self.assertGreaterEqual(report['lengthPrefixes']['count'], 1)
             self.assertGreaterEqual(
                 report['alignedU32']['counts']['anchorAbsoluteValue'], 1)
+            self.assertGreater(report['alignedU32']['wordsScanned'], 0)
+            self.assertTrue(any(sample['value'] == hex(anchor)
+                                for sample in report['alignedU32']['samples']))
             buffer = io.StringIO()
             with contextlib.redirect_stdout(buffer):
                 probe.emit_neighborhood_annotations(report)

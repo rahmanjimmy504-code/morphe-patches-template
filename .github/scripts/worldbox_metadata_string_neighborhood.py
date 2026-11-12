@@ -140,14 +140,17 @@ def length_prefix_candidates(data, tokens, max_samples=MAX_SAMPLES):
 def aligned_u32_model(data, window_start, anchor_offset, tokens):
     token_offsets = {int(row['offset'], 16) for row in tokens}
     token_lengths = {row['length'] for row in tokens}
-    begin = (window_start + 3) & ~3
-    end = window_start + len(data)
+    begin = (-window_start) % 4
+    end = len(data)
     counts = {'anchorAbsoluteValue': 0, 'anchorWindowRelativeValue': 0,
               'pointsToNearbyToken': 0, 'matchesNearbyTokenLength': 0}
     samples = []
     relative_anchor = anchor_offset - window_start
-    for offset in range(begin, min(end, len(data)) - 3, 4):
-        value = struct.unpack_from('<I', data, offset)[0]
+    words_scanned = 0
+    for local_offset in range(begin, end - 3, 4):
+        words_scanned += 1
+        value = struct.unpack_from('<I', data, local_offset)[0]
+        absolute_offset = window_start + local_offset
         if value == anchor_offset:
             counts['anchorAbsoluteValue'] += 1
         if value == relative_anchor:
@@ -158,11 +161,12 @@ def aligned_u32_model(data, window_start, anchor_offset, tokens):
             counts['matchesNearbyTokenLength'] += 1
         if (value in (anchor_offset, relative_anchor) or
                 window_start + value in token_offsets) and len(samples) < MAX_SAMPLES:
-            samples.append({'wordOffset': hex(offset), 'value': hex(value),
+            samples.append({'wordOffset': hex(absolute_offset),
+                            'value': hex(value),
                             'pointsToNearbyToken': window_start + value in token_offsets})
     return {'counts': counts, 'samples': samples,
             'samplesTruncated': sum(counts.values()) > len(samples),
-            'wordsScanned': max(0, (min(end, len(data)) - begin + 3) // 4)}
+            'wordsScanned': words_scanned}
 
 
 def anchor_facts(data, expected_anchor=EXPECTED_ANCHOR):
