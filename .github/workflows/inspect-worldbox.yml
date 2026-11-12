@@ -1062,7 +1062,7 @@ jobs:
             echo 'No Premium Unity asset annotations were produced' >&2
             exit 1
           fi
-          grep -E '::(warning|notice) title=WorldBox Premium Unity' "$output" || true
+          echo 'Premium Unity annotations are present in the inspect output.'
       - name: Surface metadata string neighborhood annotations
         if: ${{ contains(github.event.head_commit.message, '[worldbox-premium-followups]') }}
         run: |
@@ -1072,4 +1072,4 @@ jobs:
             echo 'No metadata string-neighborhood annotations were produced' >&2
             exit 1
           fi
-          grep -E '::(warning|notice) title=WorldBox metadata string neighborhood' "$output" || true
+          echo 'Metadata string-neighborhood annotations are present in the inspect output.'
