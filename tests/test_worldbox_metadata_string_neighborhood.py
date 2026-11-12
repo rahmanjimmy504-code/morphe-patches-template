@@ -54,8 +54,8 @@ class MetadataStringNeighborhoodTest(unittest.TestCase):
             with contextlib.redirect_stdout(buffer):
                 probe.emit_neighborhood_annotations(report)
             output = buffer.getvalue()
-            self.assertIn('::warning title=WorldBox metadata string neighborhood summary::', output)
-            self.assertIn('::notice title=WorldBox metadata string neighborhood tokens::', output)
+            self.assertIn('::warning title=WorldBox metadata string neighborhood::', output)
+            self.assertIn('::notice title=WorldBox metadata string neighborhood structure::', output)
             self.assertNotIn(UNKNOWN.decode(), output)
             for line in output.splitlines():
                 if line.startswith('::'):

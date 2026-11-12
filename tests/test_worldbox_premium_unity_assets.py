@@ -90,6 +90,9 @@ class PremiumUnityAssetsTest(unittest.TestCase):
         row = probe.inspect_asset_bytes(
             data, refs.TARGET_FILE, asset=asset, script_asset=asset,
             basename_unique=True, script_cache={})
+        row.update({'label': 'get_it_now_primary',
+                    'status': 'parsed', 'objectDetailsTruncated': False,
+                    'gameObjectContextsTruncated': False})
         self.assertEqual(row['needles']['premium_unlocked']['count'], 1)
         self.assertEqual(row['needles']['get_it_now']['count'], 1)
         self.assertEqual(row['objectCount'], 4)
@@ -125,9 +128,8 @@ class PremiumUnityAssetsTest(unittest.TestCase):
         with contextlib.redirect_stdout(buffer):
             probe.emit_annotations(report)
         output = buffer.getvalue()
-        self.assertIn('::warning title=WorldBox Premium Unity asset summary 1/1::', output)
-        self.assertIn('::notice title=WorldBox Premium Unity asset file 1/1::', output)
-        self.assertIn('::notice title=WorldBox Premium Unity object 1.1::', output)
+        self.assertIn('::warning title=WorldBox Premium Unity asset summary::', output)
+        self.assertIn('::warning title=WorldBox Premium Unity Get It Now lead::', output)
         self.assertIn('Get It Now', output)
         self.assertNotIn('contextsOmitted', output)
         self.assertNotIn(UNKNOWN, output)

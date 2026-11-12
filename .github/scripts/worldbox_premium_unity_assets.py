@@ -514,13 +514,8 @@ def emit_annotations(report):
         raise RuntimeError('Unexpected WorldBox Premium Unity asset report.')
     print('WorldBox full Premium Unity asset report: ' +
           json.dumps(report, separators=(',', ':')))
-    summary = {key: report[key] for key in
-               ('baseApkSha256', 'unityPyVersion', 'scriptIdentityValidated',
-                'scriptCandidateCount', 'scriptParseErrorCount',
-                'basenameUnique')}
-    summary['selectedEntryCount'] = len(report['selectedEntries'])
-    summary['limitationsSha256'] = hash_text(LIMITATIONS)
-    summary['files'] = [{
+    rows = report['files']
+    compact_files = [{
         'label': row.get('label'), 'entry': row.get('entry'),
         'status': row.get('status'), 'reason': row.get('reason'),
         'sha256': row.get('sha256'), 'fileBytes': row.get('fileBytes'),
@@ -529,49 +524,62 @@ def emit_annotations(report):
                          for label, value in row.get('needles', {}).items()},
         'objectDetailCount': len(row.get('objectDetails', [])),
         'contextCount': len(row.get('gameObjectContexts', [])),
+        'detailsTruncated': row.get('objectDetailsTruncated'),
+        'contextsTruncated': row.get('gameObjectContextsTruncated'),
         'parseErrorCount': row.get('parseErrorCount')}
-        for row in report['files']]
-    emit_chunked('warning', 'WorldBox Premium Unity asset summary',
-                 summary, 'files', chunk_size=4)
-    for file_index, row in enumerate(report['files'], 1):
-        emit_bounded('notice', 'WorldBox Premium Unity asset file ' +
-                     str(file_index) + '/' + str(len(report['files'])), {
-                         'label': row.get('label'), 'entry': row.get('entry'),
-                         'sha256': row.get('sha256'),
-                         'status': row.get('status'),
-                         'needleCounts': {label: value['count']
-                                          for label, value in row.get('needles', {}).items()},
-                         'detailsTruncated': row.get('objectDetailsTruncated'),
-                         'contextsTruncated': row.get('gameObjectContextsTruncated'),
-                         'parseErrorCount': row.get('parseErrorCount')})
-        details = row.get('objectDetails', [])
-        contexts = row.get('gameObjectContexts', [])
-        emitted_contexts = set()
-        for detail_index, detail in enumerate(details, 1):
-            object_id = detail.get('objectPathId')
-            game_object_id = detail.get('localGameObjectPathId')
-            related = [context for context in contexts
-                       if (context.get('gameObjectPathId') == object_id or
-                           (game_object_id is not None and
-                            context.get('gameObjectPathId') == game_object_id))]
-            emitted_contexts.update(item.get('gameObjectPathId') for item in related)
-            payload = {'label': row.get('label'),
-                       'entry': row.get('entry'),
-                       'objectChunk': [detail_index, len(details)],
-                       'objectDetail': detail,
-                       'relatedGameObjectContexts': related,
-                       'detailsTruncated': row.get('objectDetailsTruncated'),
-                       'contextsTruncated': row.get('gameObjectContextsTruncated')}
-            emit_bounded('notice', 'WorldBox Premium Unity object ' +
-                         str(file_index) + '.' + str(detail_index), payload)
-        for context in contexts:
-            if context.get('gameObjectPathId') in emitted_contexts:
-                continue
-            emit_bounded('notice', 'WorldBox Premium Unity context ' +
-                         str(file_index), {'label': row.get('label'),
-                                           'entry': row.get('entry'),
-                                           'context': context,
-                                           'contextsTruncated': row.get('gameObjectContextsTruncated')})
+        for row in rows]
+    emit_bounded('warning', 'WorldBox Premium Unity asset summary', {
+        'baseApkSha256': report['baseApkSha256'],
+        'unityPyVersion': report['unityPyVersion'],
+        'scriptIdentityValidated': report['scriptIdentityValidated'],
+        'scriptCandidateCount': report['scriptCandidateCount'],
+        'scriptParseErrorCount': report['scriptParseErrorCount'],
+        'basenameUnique': report['basenameUnique'],
+        'files': compact_files})
+
+    # Keep the exact Get It Now UnityEvent lead in a single high-priority
+    # annotation; this one is the most diagnostic result of the asset model.
+    primary = next((row for row in rows
+                    if row.get('label') == 'get_it_now_primary'), None)
+    if primary:
+        target_context = next((item for item in primary.get('gameObjectContexts', [])
+                               if item.get('context', {}).get('name') ==
+                               {'safe': 'Get It Now'}), None)
+        target_object = next((item for item in primary.get('objectDetails', [])
+                              if item.get('objectType') == {'safe': 'GameObject'} and
+                              'get_it_now' in item.get('needles', [])), None)
+        emit_bounded('warning', 'WorldBox Premium Unity Get It Now lead', {
+            'entry': primary['entry'], 'sha256': primary.get('sha256'),
+            'needleCounts': {label: value['count'] for label, value in
+                             primary.get('needles', {}).items()},
+            'gameObject': target_object,
+            'context': target_context,
+            'detailsTruncated': primary.get('objectDetailsTruncated'),
+            'limitations': 'Serialized component/PPtr/method-token adjacency only; not a fully decoded UnityEvent or proof of runtime entitlement behavior.'})
+
+    unlocked = next((row for row in rows
+                     if row.get('label') == 'premium_unlocked_1'), None)
+    if unlocked:
+        target_object = next((item for item in unlocked.get('objectDetails', [])
+                              if item.get('objectType') == {'safe': 'GameObject'} and
+                              'premium_unlocked' in item.get('needles', [])), None)
+        target_context = next((item for item in unlocked.get('gameObjectContexts', [])
+                               if item.get('context', {}).get('name') ==
+                               {'safe': 'premium_unlocked'}), None)
+        associated = [item for item in unlocked.get('objectDetails', [])
+                      if item.get('objectType') == {'safe': 'MonoBehaviour'}]
+        emit_bounded('notice', 'WorldBox Premium Unity premium_unlocked lead', {
+            'entry': unlocked['entry'], 'sha256': unlocked.get('sha256'),
+            'needleCounts': {label: value['count'] for label, value in
+                             unlocked.get('needles', {}).items()},
+            'gameObject': target_object, 'context': target_context,
+            'associatedMonoBehaviours': [{key: item.get(key) for key in
+                ('objectPathId', 'objectOffset', 'objectSize', 'scriptPathId',
+                 'scriptResolution', 'gameObjectPathId', 'storedSchema')}
+                for item in associated],
+            'detailsTruncated': unlocked.get('objectDetailsTruncated'),
+            'contextsTruncated': unlocked.get('gameObjectContextsTruncated'),
+            'limitations': 'Static serialized associations only; no entitlement method or safe patch is established.'})
 
 
 def main():

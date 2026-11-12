@@ -224,16 +224,19 @@ def emit_neighborhood_annotations(report):
         raise RuntimeError('Unexpected WorldBox metadata neighborhood report.')
     print('WorldBox full metadata string-neighborhood report: ' +
           json.dumps(report, separators=(',', ':')))
-    emit_bounded('warning', 'WorldBox metadata string neighborhood summary', {
-        key: report[key] for key in
-        ('sha256', 'fileBytes', 'anchor', 'window', 'candidateStringHeapBases',
-         'limitations')})
-    emit_bounded('notice', 'WorldBox metadata string neighborhood tokens',
-                 report['tokens'])
-    emit_bounded('notice', 'WorldBox metadata string neighborhood prefixes',
-                 report['lengthPrefixes'])
-    emit_bounded('notice', 'WorldBox metadata string neighborhood u32 model',
-                 report['alignedU32'])
+    tokens = report['tokens']
+    emit_bounded('warning', 'WorldBox metadata string neighborhood', {
+        'sha256': report['sha256'], 'fileBytes': report['fileBytes'],
+        'anchor': report['anchor'], 'window': report['window'],
+        'tokenCount': tokens['count'], 'tokensTruncated': tokens['truncated'],
+        'safeKnownCount': tokens['safeKnownCount'],
+        'tokenSamples': tokens['samples'],
+        'tokenSamplesTruncated': tokens['samplesTruncated'],
+        'candidateStringHeapBases': report['candidateStringHeapBases'],
+        'limitations': report['limitations']})
+    emit_bounded('notice', 'WorldBox metadata string neighborhood structure', {
+        'lengthPrefixes': report['lengthPrefixes'],
+        'alignedU32': report['alignedU32']})
 
 
 def main():
