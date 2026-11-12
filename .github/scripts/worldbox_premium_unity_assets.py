@@ -137,18 +137,23 @@ def compact_context(context):
     buttons = context.get('buttonPPtrCandidates', [])
     pointer_calls = []
     for button in buttons[:8]:
-        for match in button.get('localPPtrMatches', [])[:8]:
-            method_tokens = [string_descriptor(item.get('candidateMethod'))
-                             for item in match.get('methodTokens', [])[:8]]
+        for match in button.get('localPPtrMatches', [])[:16]:
+            method_tokens = [item.get('candidateMethod')
+                             for item in match.get('methodTokens', [])[:8]
+                             if item.get('candidateMethod') in
+                             ('clickPremium', 'ResetState', 'clickClose', 'clickHide')]
+            script_class = match.get('scriptClassName')
+            if not method_tokens or script_class not in {'ButtonPremium', 'ButtonUtil'}:
+                continue
             pointer_calls.append({
                 'buttonIndex': button.get('buttonIndex'),
                 'buttonPathId': button.get('buttonPathId'),
                 'targetIndex': match.get('index'),
                 'targetPathId': match.get('pathId'),
-                'targetType': string_descriptor(match.get('type')),
-                'targetScriptClass': string_descriptor(match.get('scriptClassName')),
-                'offsets': match.get('offsets', [])[:8],
-                'methodTokens': method_tokens})
+                'targetScriptClass': string_descriptor(script_class),
+                'offsets': match.get('offsets', [])[:2],
+                'methodTokens': [string_descriptor(item)
+                                 for item in method_tokens[:2]]})
     return {
         'available': context.get('available'),
         'name': string_descriptor(context.get('name')),

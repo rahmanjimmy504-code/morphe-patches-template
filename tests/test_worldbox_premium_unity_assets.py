@@ -127,6 +127,7 @@ class PremiumUnityAssetsTest(unittest.TestCase):
         output = buffer.getvalue()
         self.assertIn('::warning title=WorldBox Premium Unity asset summary 1/1::', output)
         self.assertIn('::notice title=WorldBox Premium Unity asset rows 1/1::', output)
+        self.assertNotIn('contextsOmitted', output)
         self.assertNotIn(UNKNOWN, output)
         for line in output.splitlines():
             if line.startswith('::'):
