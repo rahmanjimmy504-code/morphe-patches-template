@@ -132,6 +132,26 @@ class PremiumUnityAssetsTest(unittest.TestCase):
             if line.startswith('::'):
                 self.assertLessEqual(len(line), 4096)
 
+    def test_compact_context_keeps_button_pointer_method_associations(self):
+        context = {
+            'available': True, 'name': 'Get It Now', 'activeSelf': True,
+            'activeInHierarchy': True, 'hierarchy': ['Get It Now', 'premium_menu'],
+            'componentTypes': ['Button', 'MonoBehaviour'],
+            'componentScripts': [{'script': {'className': 'ButtonPremium'}}],
+            'buttonPPtrCandidates': [{'buttonIndex': 1, 'buttonPathId': 100,
+                'localPPtrMatches': [{'index': 4, 'pathId': 200,
+                    'type': 'MonoBehaviour', 'scriptClassName': 'ButtonPremium',
+                    'offsets': [316], 'methodTokens': [
+                        {'pptrOffset': 316, 'tokenOffset': 332,
+                         'candidateMethod': 'clickPremium'}]}]}]}
+        compact = probe.compact_context(context)
+        self.assertEqual(compact['pointerCalls'][0]['targetPathId'], 200)
+        self.assertEqual(compact['pointerCalls'][0]['targetScriptClass'],
+                         {'safe': 'ButtonPremium'})
+        self.assertEqual(compact['pointerCalls'][0]['methodTokens'],
+                         [{'safe': 'clickPremium'}])
+        self.assertNotIn('candidateMethod', str(compact))
+
     def test_sanitize_value_preserves_descriptors_and_hashes_unknowns(self):
         value = {'safe': 'premium_unlocked'}
         self.assertEqual(probe.sanitize_value(value), value)

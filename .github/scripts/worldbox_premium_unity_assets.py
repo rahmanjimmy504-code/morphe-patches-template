@@ -135,28 +135,37 @@ def compact_context(context):
     component_types = context.get('componentTypes', [])
     scripts = context.get('componentScripts', [])
     buttons = context.get('buttonPPtrCandidates', [])
-    method_tokens = []
+    pointer_calls = []
     for button in buttons[:8]:
         for match in button.get('localPPtrMatches', [])[:8]:
-            for token in match.get('methodTokens', [])[:8]:
-                method_tokens.append(string_descriptor(token.get('candidateMethod')))
+            method_tokens = [string_descriptor(item.get('candidateMethod'))
+                             for item in match.get('methodTokens', [])[:8]]
+            pointer_calls.append({
+                'buttonIndex': button.get('buttonIndex'),
+                'buttonPathId': button.get('buttonPathId'),
+                'targetIndex': match.get('index'),
+                'targetPathId': match.get('pathId'),
+                'targetType': string_descriptor(match.get('type')),
+                'targetScriptClass': string_descriptor(match.get('scriptClassName')),
+                'offsets': match.get('offsets', [])[:8],
+                'methodTokens': method_tokens})
     return {
         'available': context.get('available'),
         'name': string_descriptor(context.get('name')),
         'activeSelf': context.get('activeSelf'),
         'activeInHierarchy': context.get('activeInHierarchy'),
-        'hierarchy': [string_descriptor(item) for item in hierarchy[:8]],
+        'hierarchy': [string_descriptor(item) for item in hierarchy[:6]],
         'hierarchyTruncated': bool(context.get('hierarchyTruncated') or
-                                   len(hierarchy) > 8),
+                                   len(hierarchy) > 6),
         'componentTypes': [string_descriptor(item)
-                           for item in component_types[:16]],
+                           for item in component_types[:12]],
         'componentTypesTruncated': bool(context.get('componentsTruncated') or
-                                        len(component_types) > 16),
+                                        len(component_types) > 12),
         'scriptClasses': [string_descriptor(row.get('script', {}).get('className'))
-                          for row in scripts[:16]],
-        'canvasGroups': context.get('canvasGroups', [])[:8],
-        'methodTokens': method_tokens[:16],
-        'methodTokensTruncated': len(method_tokens) > 16,
+                          for row in scripts[:10]],
+        'canvasGroups': context.get('canvasGroups', [])[:4],
+        'pointerCalls': pointer_calls[:12],
+        'pointerCallsTruncated': len(pointer_calls) > 12,
     }
 
 
@@ -408,6 +417,15 @@ def inspect_asset_bytes(data, owner, asset=None, script_asset=None,
             context = schema.game_object_context(
                 asset, path_id, owner, script_asset, basename_unique,
                 script_cache or {})
+            if not context.get('available'):
+                continue
+            known_context = context.get('name') in {
+                'Get It Now', 'premium_unlocked', 'premium_menu'}
+            has_pointer_calls = any(
+                button.get('localPPtrMatches')
+                for button in context.get('buttonPPtrCandidates', []))
+            if not known_context and not has_pointer_calls:
+                continue
             contexts.append({'gameObjectPathId': path_id,
                              'context': compact_context(context)})
         except Exception as exc:
