@@ -71,8 +71,8 @@ MAX_FILE = 32 * 1024 * 1024
 MAX_OBJECTS = 200000
 MAX_MATCHES = 20000
 MAX_SAMPLES = 12
-MAX_OBJECT_DETAILS = 4
-MAX_CONTEXTS = 2
+MAX_OBJECT_DETAILS = 8
+MAX_CONTEXTS = 4
 MAX_PAYLOAD = 8192
 MAX_PAYLOAD_STRINGS = 12
 MAX_PPTR_CANDIDATES = 8
@@ -533,16 +533,45 @@ def emit_annotations(report):
         for row in report['files']]
     emit_chunked('warning', 'WorldBox Premium Unity asset summary',
                  summary, 'files', chunk_size=4)
-    for index, row in enumerate(report['files'], 1):
-        payload = {'chunk': [index, len(report['files'])],
-                   'label': row.get('label'), 'entry': row.get('entry'),
-                   'sha256': row.get('sha256'), 'status': row.get('status'),
-                   'objectDetails': row.get('objectDetails', []),
-                   'gameObjectContexts': row.get('gameObjectContexts', []),
-                   'detailsTruncated': row.get('objectDetailsTruncated'),
-                   'contextsTruncated': row.get('gameObjectContextsTruncated')}
-        emit_bounded('notice', 'WorldBox Premium Unity asset rows ' +
-                     str(index) + '/' + str(len(report['files'])), payload)
+    for file_index, row in enumerate(report['files'], 1):
+        emit_bounded('notice', 'WorldBox Premium Unity asset file ' +
+                     str(file_index) + '/' + str(len(report['files'])), {
+                         'label': row.get('label'), 'entry': row.get('entry'),
+                         'sha256': row.get('sha256'),
+                         'status': row.get('status'),
+                         'needleCounts': {label: value['count']
+                                          for label, value in row.get('needles', {}).items()},
+                         'detailsTruncated': row.get('objectDetailsTruncated'),
+                         'contextsTruncated': row.get('gameObjectContextsTruncated'),
+                         'parseErrorCount': row.get('parseErrorCount')})
+        details = row.get('objectDetails', [])
+        contexts = row.get('gameObjectContexts', [])
+        emitted_contexts = set()
+        for detail_index, detail in enumerate(details, 1):
+            object_id = detail.get('objectPathId')
+            game_object_id = detail.get('localGameObjectPathId')
+            related = [context for context in contexts
+                       if (context.get('gameObjectPathId') == object_id or
+                           (game_object_id is not None and
+                            context.get('gameObjectPathId') == game_object_id))]
+            emitted_contexts.update(item.get('gameObjectPathId') for item in related)
+            payload = {'label': row.get('label'),
+                       'entry': row.get('entry'),
+                       'objectChunk': [detail_index, len(details)],
+                       'objectDetail': detail,
+                       'relatedGameObjectContexts': related,
+                       'detailsTruncated': row.get('objectDetailsTruncated'),
+                       'contextsTruncated': row.get('gameObjectContextsTruncated')}
+            emit_bounded('notice', 'WorldBox Premium Unity object ' +
+                         str(file_index) + '.' + str(detail_index), payload)
+        for context in contexts:
+            if context.get('gameObjectPathId') in emitted_contexts:
+                continue
+            emit_bounded('notice', 'WorldBox Premium Unity context ' +
+                         str(file_index), {'label': row.get('label'),
+                                           'entry': row.get('entry'),
+                                           'context': context,
+                                           'contextsTruncated': row.get('gameObjectContextsTruncated')})
 
 
 def main():

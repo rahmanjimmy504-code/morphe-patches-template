@@ -126,7 +126,9 @@ class PremiumUnityAssetsTest(unittest.TestCase):
             probe.emit_annotations(report)
         output = buffer.getvalue()
         self.assertIn('::warning title=WorldBox Premium Unity asset summary 1/1::', output)
-        self.assertIn('::notice title=WorldBox Premium Unity asset rows 1/1::', output)
+        self.assertIn('::notice title=WorldBox Premium Unity asset file 1/1::', output)
+        self.assertIn('::notice title=WorldBox Premium Unity object 1.1::', output)
+        self.assertIn('Get It Now', output)
         self.assertNotIn('contextsOmitted', output)
         self.assertNotIn(UNKNOWN, output)
         for line in output.splitlines():
