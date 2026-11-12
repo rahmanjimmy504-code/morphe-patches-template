@@ -55,18 +55,27 @@ def fixture():
     ptr = lambda path_id: {'m_FileID': 0, 'm_PathID': path_id}
     script = SimpleNamespace(m_Name='ButtonPremium', m_ClassName='ButtonPremium',
                              m_Namespace='', m_AssemblyName='Assembly-CSharp')
+    data = bytes(payload)
     objects = {
         42: FakeObject(42, 'MonoBehaviour', {
             'm_GameObject': ptr(5), 'm_Enabled': 1,
             'm_Script': ptr(1116), 'm_Name': 'premium_unlocked'}, bytes(payload)),
         5: FakeObject(5, 'GameObject', {
+            'm_Name': 'premium_unlocked', 'm_IsActive': 1,
+            'm_Component': [{'component': ptr(42)}]}),
+        6: FakeObject(6, 'GameObject', {
             'm_Name': 'Get It Now', 'm_IsActive': 1,
             'm_Component': [{'component': ptr(42)}]}),
         1116: FakeObject(1116, 'MonoScript', script),
     }
-    # Only the synthetic MonoBehaviour owns the bounded data extent, so exact
-    # needle offsets map to one object rather than three ambiguous extents.
-    objects[5].byte_size = 0
+    # Map the two exact needles to distinct serialized GameObject extents; the
+    # base component has a separate extent to prevent ambiguous attribution.
+    objects[42].byte_start = 0
+    objects[42].byte_size = 16
+    objects[5].byte_start = data.index(b'premium_unlocked')
+    objects[5].byte_size = len(b'premium_unlocked')
+    objects[6].byte_start = data.index(b'Get It Now')
+    objects[6].byte_size = len(b'Get It Now')
     objects[1116].byte_size = 0
     asset = SimpleNamespace(objects=objects, externals=[],
                             unity_version='2021.3.0f1',
@@ -83,17 +92,28 @@ class PremiumUnityAssetsTest(unittest.TestCase):
             basename_unique=True, script_cache={})
         self.assertEqual(row['needles']['premium_unlocked']['count'], 1)
         self.assertEqual(row['needles']['get_it_now']['count'], 1)
-        self.assertEqual(row['objectCount'], 3)
+        self.assertEqual(row['objectCount'], 4)
         detail = row['objectDetails'][0]
-        self.assertEqual(detail['scriptPathId'], 1116)
-        self.assertEqual(detail['storedSchema']['available'], False)
+        self.assertEqual(detail['objectType'], {'safe': 'GameObject'})
+        self.assertEqual(detail['needles'], ['get_it_now'])
+        mono = probe.monobehaviour_details(asset.objects[42], asset,
+                                           refs.TARGET_FILE, asset, True, {})
+        self.assertEqual(mono['scriptPathId'], 1116)
+        self.assertEqual(mono['storedSchema']['available'], False)
         self.assertTrue(any(token['token'] ==
                             {'safe': 'premium_unlocked'}
-                            for token in detail['payloadTokens']))
+                            for token in mono['payloadTokens']))
         self.assertTrue(any(candidate.get('methodToken') ==
                             {'safe': 'clickPremium'}
-                            for candidate in detail['localPPtrCandidates']['samples']))
-        self.assertTrue(row['gameObjectContexts'])
+                            for candidate in mono['localPPtrCandidates']['samples']))
+        context_names = [row['context'].get('name')
+                         for row in row['gameObjectContexts']]
+        self.assertIn({'safe': 'Get It Now'}, context_names)
+        self.assertIn({'safe': 'premium_unlocked'}, context_names)
+        self.assertTrue(any(
+            {'safe': 'ButtonPremium'} in context.get('scriptClasses', [])
+            for context in (item['context']
+                            for item in row['gameObjectContexts'])))
         report = {
             'kind': probe.KIND, 'baseApkSha256': '0' * 64,
             'unityPyVersion': {'safe': '1.25.4'},

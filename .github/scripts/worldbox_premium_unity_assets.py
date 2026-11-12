@@ -378,11 +378,18 @@ def inspect_asset_bytes(data, owner, asset=None, script_asset=None,
     by_id = {obj.path_id: obj for obj in asset.objects.values()}
     details = []
     local_go_ids = []
-    for path_id in sorted(object_ids)[:MAX_OBJECT_DETAILS]:
+    priority = {'get_it_now': 0, 'premium_unlocked': 1,
+                'premium_capital': 2, 'premium_lower': 3}
+    ordered_ids = sorted(
+        object_ids,
+        key=lambda path_id: (min(priority[label] for label in object_ids[path_id]),
+                             path_id))
+    for path_id in ordered_ids[:MAX_OBJECT_DETAILS]:
         obj = by_id.get(path_id)
         if obj is None:
             continue
-        row = {'needles': sorted(object_ids[path_id]),
+        row = {'objectPathId': path_id,
+               'needles': sorted(object_ids[path_id]),
                'objectType': string_descriptor(obj.type.name)}
         if obj.type.name == 'MonoBehaviour':
             row.update(monobehaviour_details(obj, asset, owner, script_asset,
@@ -390,9 +397,13 @@ def inspect_asset_bytes(data, owner, asset=None, script_asset=None,
                                              script_cache or {}))
             if row.get('localGameObjectPathId') is not None:
                 local_go_ids.append(row['localGameObjectPathId'])
+        elif obj.type.name == 'GameObject':
+            local_go_ids.append(path_id)
         details.append(row)
     contexts = []
-    for path_id in sorted(set(local_go_ids))[:MAX_CONTEXTS]:
+    for path_id in dict.fromkeys(local_go_ids):
+        if len(contexts) >= MAX_CONTEXTS:
+            break
         try:
             context = schema.game_object_context(
                 asset, path_id, owner, script_asset, basename_unique,
