@@ -26,6 +26,8 @@ on:
       - .github/scripts/worldbox_native_literal_refs.py
       - .github/scripts/worldbox_brotli_export_consumers.py
       - .github/scripts/worldbox_premium_entitlement_probe.py
+      - .github/scripts/worldbox_premium_unity_assets.py
+      - .github/scripts/worldbox_metadata_string_neighborhood.py
       - .github/scripts/worldbox_ghidra_probe.py
       - .github/scripts/worldbox_ghidra_callees.py
       - .github/scripts/worldbox_metadata_magic_probe.py
@@ -89,6 +91,8 @@ on:
       - tests/test_worldbox_native_literal_refs.py
       - tests/test_worldbox_brotli_export_consumers.py
       - tests/test_worldbox_premium_entitlement_probe.py
+      - tests/test_worldbox_premium_unity_assets.py
+      - tests/test_worldbox_metadata_string_neighborhood.py
       - docs/worldbox/scan-metadata.js
       - tests/worldbox-metadata-scanner.test.cjs
       - tests/test_worldbox_triage.py
@@ -1024,3 +1028,48 @@ jobs:
             exit 1
           fi
           grep -E '::(warning|notice) title=WorldBox Premium (entitlement|native model|metadata|APK|resource|DEX)' "$output" || true
+  premium-followups-probe:
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-premium-followups]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install pinned analysis libraries
+        run: python -m pip install requests 'UnityPy==1.25.4'
+      - name: Test synthetic Unity and metadata follow-up probes
+        run: |
+          python tests/test_worldbox_unity_scripts.py
+          python tests/test_worldbox_unity_script_refs.py
+          python tests/test_worldbox_unity_schema.py
+          python tests/test_worldbox_premium_unity_assets.py
+          python tests/test_worldbox_metadata_string_neighborhood.py
+      - name: Inspect hash-gated Premium follow-up evidence
+        env:
+          WORLDBOX_PREMIUM_FOLLOWUP_PROBE: '1'
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -o pipefail
+          python .github/scripts/inspect_worldbox.py | tee "$RUNNER_TEMP/worldbox-premium-followups-output.txt"
+      - name: Surface Premium Unity asset annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-premium-followups]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-premium-followups-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox Premium Unity' "$output"; then
+            echo 'No Premium Unity asset annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox Premium Unity' "$output" || true
+      - name: Surface metadata string neighborhood annotations
+        if: ${{ contains(github.event.head_commit.message, '[worldbox-premium-followups]') }}
+        run: |
+          output="$RUNNER_TEMP/worldbox-premium-followups-output.txt"
+          test -s "$output"
+          if ! grep -qE '::(warning|notice) title=WorldBox metadata string neighborhood' "$output"; then
+            echo 'No metadata string-neighborhood annotations were produced' >&2
+            exit 1
+          fi
+          grep -E '::(warning|notice) title=WorldBox metadata string neighborhood' "$output" || true

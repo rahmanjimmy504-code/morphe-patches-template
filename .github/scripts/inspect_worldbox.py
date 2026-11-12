@@ -159,6 +159,18 @@ try:
                 sys.exit(0)
             run_bounded_ghidra(native, addresses, targets, 'Premium entitlement')
             sys.exit(0)
+        if os.environ.get('WORLDBOX_PREMIUM_FOLLOWUP_PROBE') == '1':
+            verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
+            verify_file(unity, EXPECTED_UNITY, 'ARM64 libunity.so')
+            verify_file(base_apk, EXPECTED_BASE_APK, 'base.apk')
+            verify_file(metadata, EXPECTED_METADATA, 'global-metadata.dat')
+            from worldbox_premium_unity_assets import (inspect as unity_asset_report,
+                                                       emit_annotations as emit_unity_annotations)
+            from worldbox_metadata_string_neighborhood import (neighborhood_report,
+                                                                emit_neighborhood_annotations)
+            emit_unity_annotations(unity_asset_report(base_apk))
+            emit_neighborhood_annotations(neighborhood_report(metadata))
+            sys.exit(0)
         if os.environ.get('WORLDBOX_BROTLI_EXPORT_CONSUMER_PROBE') == '1':
             verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
             from worldbox_brotli_export_consumers import (export_consumers_report,
