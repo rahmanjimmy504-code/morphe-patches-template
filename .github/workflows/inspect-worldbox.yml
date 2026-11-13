@@ -27,7 +27,9 @@ on:
       - .github/scripts/worldbox_brotli_export_consumers.py
       - .github/scripts/worldbox_premium_entitlement_probe.py
       - .github/scripts/worldbox_premium_unity_assets.py
+      - .github/scripts/worldbox_assetripper_probe.py
       - .github/scripts/worldbox_metadata_string_neighborhood.py
+      - tests/test_worldbox_assetripper_probe.py
       - .github/scripts/worldbox_ghidra_probe.py
       - .github/scripts/worldbox_ghidra_callees.py
       - .github/scripts/worldbox_metadata_magic_probe.py
@@ -1073,3 +1075,48 @@ jobs:
             exit 1
           fi
           echo 'Metadata string-neighborhood annotations are present in the inspect output.'
+  unity-assetripper-probe:
+    if: ${{ contains(github.event.head_commit.message, '[worldbox-assetripper]') }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install HTTP client and synthetic tests
+        run: |
+          python -m pip install requests
+          python tests/test_worldbox_assetripper_probe.py
+      - name: Download pinned AssetRipper 2.0.0 Linux x64
+        run: |
+          archive="$RUNNER_TEMP/AssetRipper_linux_x64.tar.xz"
+          curl -fsSL --retry 3 -o "$archive" https://github.com/AssetRipper/AssetRipper/releases/download/2.0.0/AssetRipper_linux_x64.tar.xz
+          echo "6f5d4352d36795b944243eb3ec790ec37dbca6d6756e52605bc8616e042d384e  $archive" | sha256sum -c -
+          mkdir -p "$RUNNER_TEMP/assetripper"
+          tar -xJf "$archive" -C "$RUNNER_TEMP/assetripper"
+          binary="$(find "$RUNNER_TEMP/assetripper" -type f -name 'AssetRipper.GUI.Free' -print -quit)"
+          if [ -z "$binary" ]; then
+            find "$RUNNER_TEMP/assetripper" -maxdepth 3 -type f -print
+            exit 1
+          fi
+          chmod +x "$binary"
+          echo "ASSETRIPPER_BIN=$binary" >> "$GITHUB_ENV"
+      - name: Run hash-gated AssetRipper cross-check
+        env:
+          WORLDBOX_ASSETRIPPER_PROBE: '1'
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -o pipefail
+          python .github/scripts/inspect_worldbox.py | tee "$RUNNER_TEMP/worldbox-assetripper-output.txt"
+      - name: Surface AssetRipper type-tree annotation
+        run: |
+          output="$RUNNER_TEMP/worldbox-assetripper-output.txt"
+          test -s "$output"
+          if ! grep -qE '::notice title=WorldBox AssetRipper type-tree cross-check' "$output"; then
+            echo 'No AssetRipper cross-check annotation was produced' >&2
+            exit 1
+          fi
+          grep -E '::notice title=WorldBox AssetRipper type-tree cross-check' "$output" || true

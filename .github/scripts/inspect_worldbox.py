@@ -159,6 +159,20 @@ try:
                 sys.exit(0)
             run_bounded_ghidra(native, addresses, targets, 'Premium entitlement')
             sys.exit(0)
+        if os.environ.get('WORLDBOX_ASSETRIPPER_PROBE') == '1':
+            verify_file(base_apk, EXPECTED_BASE_APK, 'base.apk')
+            assetripper = os.environ.get('ASSETRIPPER_BIN', '')
+            if not assetripper:
+                raise RuntimeError('AssetRipper executable path is missing.')
+            command = [sys.executable, '.github/scripts/worldbox_assetripper_probe.py',
+                       '--base-apk', str(base_apk), '--assetripper', assetripper]
+            result = subprocess.run(command, capture_output=True, text=True,
+                                    timeout=2400)
+            if result.returncode:
+                raise RuntimeError('AssetRipper type-tree probe failed: ' +
+                                   (result.stderr or result.stdout)[-1200:])
+            print(result.stdout, end='')
+            sys.exit(0)
         if os.environ.get('WORLDBOX_PREMIUM_FOLLOWUP_PROBE') == '1':
             verify_file(native, EXPECTED_ARM64, 'ARM64 libil2cpp.so')
             verify_file(unity, EXPECTED_UNITY, 'ARM64 libunity.so')
